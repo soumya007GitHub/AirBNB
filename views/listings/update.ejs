@@ -1,0 +1,31 @@
+<% layout("/layouts/boilerplate") %>
+<body>
+    <h1>Edit <%= listing.title %></h1>
+    <form action="/listings/<%= listing._id %>?_method=PATCH" method="post" class="needs-validation new-listing" novalidate>
+            <div class="mb-3">
+                <label for="title" class="form-label">Title</label>
+                <input type="text" class="form-control" id="title" name="title" aria-describedby="title" value="<%= listing.title %>"  >
+            </div>
+            <div class="mb-3">
+                <label for="description" class="form-label">Description</label>
+                <textarea class="form-control" id="description" name="description" rows="3"  ><%= listing.description %></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="image" class="form-label">Image URL</label>
+                <input type="text" class="form-control" id="image" name="image" aria-describedby="image" value="<%= listing.image.url %>"  >
+            </div>
+            <div class="mb-3">
+                <label for="price" class="form-label">Price</label>
+                <input type="number" class="form-control" id="price" name="price" aria-describedby="price" value="<%= listing.price %>"  >
+            </div>
+            <div class="mb-3">
+                <label for="location" class="form-label">Location</label>
+                <input type="text" class="form-control" id="location" name="location" aria-describedby="location" value="<%= listing.location %>"  >
+            </div>
+            <div class="mb-3">
+                <label for="country" class="form-label">Country</label>
+                <input type="text" class="form-control" id="country" name="country" aria-describedby="country" value="<%= listing.country %>"  >
+            </div>
+            <button type="submit" class="btn btn-danger">Update Listing</button>
+        </form>
+</body>

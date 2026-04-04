@@ -1,0 +1,83 @@
+body{
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.container{
+    flex: 1;
+}
+.navbar{
+    height: 5rem;
+    background-color: rgb(240, 240, 240);
+}
+.navbar-collapse, .container-fluid{
+    background-color: rgb(240, 240, 240);
+}
+#airbnb-icon{
+    color: #fe424d;
+    font-size: 2rem;
+}
+.nav-link{
+    color: #222222;
+}
+
+.listings-row {
+    align-items: stretch;
+    margin-bottom: 1rem;
+}
+
+.listing-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.listing-card > a {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    text-decoration: none;
+    color: #000;
+}
+
+.listing-card .card-img-top {
+    width: 100%;
+    height: 12rem;
+    object-fit: cover;
+    object-position: center;
+    flex-shrink: 0;
+    display: block;
+}
+
+.listing-card .card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.listing-card .card-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.new-listing{
+    margin: 1rem 0;
+}
+.show-listing{
+    margin: 1rem 0;
+}
+.show-listing img{
+    height: 30vh;
+    object-fit: cover;
+}
+footer .f-info{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 8rem;
+    background-color: rgb(245, 243, 243);
+}
