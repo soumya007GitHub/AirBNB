@@ -97,6 +97,10 @@ app.get("/listings/:id/delete", async (req, res)=>{
     res.redirect("/listings");
 });
 
+app.use((req, res) => {
+    res.status(404).render("error/error.ejs");
+});
+
 
 app.listen(8080, ()=>{
     console.log("Server started on port 8080");
