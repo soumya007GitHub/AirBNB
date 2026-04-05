@@ -1,6 +1,6 @@
 # Air BNB (Listings) — Express + MongoDB
 
-A small **server-rendered** web app for browsing and managing property-style **listings**. Built with **Node.js**, **Express**, **MongoDB** (via **Mongoose**), and **EJS** templates with **ejs-mate** layouts. Listings can have **reviews** (stored in a separate collection, linked from each listing).
+A small **server-rendered** web app for browsing and managing property-style **listings**. Built with **Node.js**, **Express**, **MongoDB** (via **Mongoose**), and **EJS** templates with **ejs-mate** layouts. Listings can have **reviews** (stored in a separate collection, linked from each listing). HTTP handlers for listings and reviews live under **`routes/`** and are mounted from **`app.js`**.
 
 ---
 
@@ -99,11 +99,14 @@ Open **http://localhost:8080**
 ## Project structure
 
 ```
-├── app.js                 # Express app, middleware, routes, error handling
+├── app.js                 # Express app, DB connect, mount routers, errors
 ├── package.json
 ├── package-lock.json
 ├── README.md
 ├── PROJECT_STRUCTURE.md   # Detailed architecture & code notes
+├── routes/
+│   ├── listingRoutes.js   # CRUD under /listings
+│   └── reviewRoutes.js    # Reviews under /listings/:id/reviews (mergeParams)
 ├── models/
 │   ├── listing.js         # Listing schema, review refs, cascade delete hook
 │   └── review.js          # Review schema (comment, rating, createdAt)
@@ -141,7 +144,7 @@ Open **http://localhost:8080**
 | POST | `/listings/:id/reviews` | Create a review for a listing |
 | GET | `/listings/:id/reviews/:reviewId` | Delete a review |
 
-*(Any other path → 404 view; thrown errors → error view.)*
+*(Any other path → 404 view; thrown errors → error view. Listing and review route implementations are in **`routes/`**.)*
 
 ---
 

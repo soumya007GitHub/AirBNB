@@ -8,7 +8,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Layer | What it is | Where it lives |
 |--------|------------|----------------|
-| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling | `app.js`, `models/`, `init/` |
+| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling | `app.js`, `routes/`, `models/`, `init/` |
 | **Server-rendered UI** | HTML produced on the server via EJS (not a separate SPA) | `views/` |
 | **Static assets** | Files sent as-is (CSS, client JS, future images) | `public/` |
 | **Shared route helpers** | Wrap async handlers and carry HTTP status for errors | `utils/` |
@@ -18,7 +18,8 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 - **Routes + DB + HTML in one file** becomes impossible to navigate and risky to change (one typo breaks everything).
 - **Models** define data shape once; both the web app and the seed script reuse them. **Reviews** live in their own model so listing documents stay a reasonable size and review CRUD stays clear.
-- **`utils/`** keeps error-handling patterns (`wrapAsync`, `ExpressError`) out of `app.js` so routes stay readable and the same helpers can be reused on new routes.
+- **`routes/`** splits listing vs review HTTP handlers into modules; `app.js` only mounts routers and shared middleware so each file stays small and focused.
+- **`utils/`** keeps error-handling patterns (`wrapAsync`, `ExpressError`) out of route files so handlers stay readable and the same helpers can be reused on new routes.
 - **Views** let you edit pages without rereading all route code. **Dedicated error templates** (`views/error/`) separate “normal” pages from 404 and error responses.
 - **`init/`** is destructive (wipes listings); it must not run every time the server starts.
 - **`public/`** is separate so styles, scripts, and CDN links stay cacheable and paths stay predictable (`/css/...`, `/js/...`).
@@ -29,7 +30,9 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Path | Role |
 |------|------|
-| `app.js` | Express app: middleware, Mongo connection, HTTP routes (listings + reviews), 404 and error middleware. |
+| `app.js` | Express app: middleware, Mongo connection, mount **`listingRoutes`** and **`reviewRoutes`**, test routes, 404 and error middleware. |
+| `routes/listingRoutes.js` | `Router` for paths under **`/listings`**: index, new, create, show, edit, patch, delete. |
+| `routes/reviewRoutes.js` | `Router` mounted at **`/listings/:id/reviews`**: create review (**`POST /`**) and delete (**`GET /:reviewId`**). Uses **`mergeParams: true`** so **`req.params.id`** is the listing id. |
 | `models/listing.js` | Mongoose `Listing` schema; `reviews` refs; post-hook to delete related reviews when a listing is removed. |
 | `models/review.js` | Mongoose `Review` schema (`comment`, `rating`, `createdAt`). |
 | `utils/wrapAsync.js` | Higher-order function: wraps async route handlers and forwards rejections to Express `next` (enables central error middleware). |
@@ -60,29 +63,51 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1–11 | Load Express, mongoose, `Listing` / `Review`, `path`, `method-override`, `ejs-mate`, `wrapAsync`, `ExpressError`; Mongo URL for DB **`airbnb`**. |
-| 13–18 | Register ejs-mate; EJS views under **`./views`**; URL-encoded bodies; **`_method`** override; static files from **`public/`**. |
-| 20–28 | `dbConnection`: `mongoose.connect`; log success/failure. |
-| 31–33 | **`GET /`** — text smoke test. |
-| 35–46 | **`GET /testListing`** — create one hard-coded listing, save, respond (dev helper; not wrapped in `wrapAsync`). |
-| 48–52 | **`GET /listings`** — `find({})`, render index with **`allListings`**. |
-| 54–56 | **`GET /listings/new`** — new listing form. |
-| 58–76 | **`POST /listings/new`** — validate required body fields or **`throw new ExpressError(400, ...)`**; map **`image`** to **`{ url }`**; save; redirect to index. |
-| 78–82 | **`GET /listings/:id`** — **`findById`** with **`populate("reviews")`**; render show. |
-| 85–89 | **`GET /listings/:id/edit`** — **`findById`**; render update form. |
-| 91–98 | **`PATCH /listings/:id`** — **`findByIdAndUpdate`**; default image URL if missing; redirect. |
-| 100–104 | **`GET /listings/:id/delete`** — **`findByIdAndDelete`**; redirect (GET delete is simple but not ideal for production). |
-| 106–120 | **`POST /listings/:id/reviews`** — create **`Review`**, push id onto **`listing.reviews`**, save listing, redirect to show. |
-| 122–133 | **`GET /listings/:id/reviews/:reviewId`** — delete review document and **`$pull`** its id from the listing; redirect to show. |
-| 135–138 | **404 middleware** — no `next` arg: catches unmatched routes; **`res.status(404).render("error/404.ejs")`**. |
-| 140–144 | **Error middleware** — four arguments; reads **`err.statusCode`** / **`err.message`**; renders **`error/error.ejs`**. |
-| 147–149 | Listen on port **8080**. |
+| 1–10 | Load Express, mongoose, **`path`**, **`method-override`**, **`ejs-mate`**, **`Listing`** (for **`/testListing` only**), **`listingRoutes`**, **`reviewRoutes`**; Mongo URL for DB **`airbnb`**. |
+| 11–17 | Register ejs-mate; EJS views under **`./views`**; URL-encoded bodies; **`_method`** override; static files from **`public/`**. |
+| 19–27 | `dbConnection`: **`mongoose.connect`**; log success/failure. |
+| 29–32 | **`GET /`** — text smoke test. |
+| 34–46 | **`GET /testListing`** — create one hard-coded **`Listing`**, save, respond (dev helper; not wrapped in **`wrapAsync`**). |
+| 48–49 | **`app.use("/listings", listingRoutes)`** — listing CRUD is defined in **`routes/listingRoutes.js`**. |
+| 51–52 | **`app.use("/listings/:id/reviews", reviewRoutes)`** — review routes; **`reviewRoutes`** uses **`mergeParams: true`** so **`req.params.id`** is the listing id. |
+| 54–57 | **404 middleware** — catches unmatched routes; **`res.status(404).render("error/404.ejs")`**. |
+| 59–63 | **Error middleware** — four arguments; reads **`err.statusCode`** / **`err.message`**; renders **`error/error.ejs`**. |
+| 65–67 | Listen on port **8080**. |
 
 **Robustness note (optional improvement):** Invalid `:id` values can cause Mongoose **CastError**. Checking **`mongoose.isValidObjectId(id)`** before `findById` avoids that; checking **`if (!listing)`** avoids null dereference in templates.
 
 ---
 
-## 5. `models/listing.js` — structured notes
+## 5. `routes/listingRoutes.js` — structured notes
+
+| Part | Note |
+|------|------|
+| **`express.Router({ mergeParams: true })`** | Consistent with the review router; listing paths do not rely on parent params but the option is harmless. |
+| **`GET /`** (full URL **`GET /listings`**) | **`Listing.find({})`**, render **`listings/index.ejs`** with **`allListings`**. |
+| **`GET /new`** | Render create form. |
+| **`POST /new`** | Validate body or **`throw new ExpressError(400, ...)`**; build **`Listing`** with **`image: { url }`**; save; redirect **`/listings`**. |
+| **`GET /:id`** | **`findById`** + **`populate("reviews")`**; render **`show.ejs`**. **Must stay after** **`/new`** so **`new` is not parsed as an id. |
+| **`GET /:id/edit`** | **`findById`**; render **`update.ejs`**. |
+| **`PATCH /:id`** | **`findByIdAndUpdate`**; default image URL if missing; redirect **`/listings`**. |
+| **`GET /:id/delete`** | **`findByIdAndDelete`** (triggers listing schema hook for reviews); redirect **`/listings`**. |
+
+Imports **`Listing`**, **`wrapAsync`**, **`ExpressError`**.
+
+---
+
+## 6. `routes/reviewRoutes.js` — structured notes
+
+| Part | Note |
+|------|------|
+| **`mergeParams: true`** | Required: router is mounted at **`/listings/:id/reviews`**, so **`req.params.id`** must come from the parent path. |
+| **`POST /`** (full URL **`POST /listings/:id/reviews`**) | Create **`Review`** from **`rating`** / **`comment`**; **`Listing.findById(id)`**, push review **`_id`**, save listing; redirect to **`/listings/:id`**. |
+| **`GET /:reviewId`** | **`Review.findByIdAndDelete`**; **`Listing.findByIdAndUpdate`** with **`$pull`** on **`reviews`**; redirect to show listing. |
+
+Imports **`Listing`**, **`Review`**, **`wrapAsync`**.
+
+---
+
+## 7. `models/listing.js` — structured notes
 
 | Lines / area | What it does |
 |--------------|----------------|
@@ -93,7 +118,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 6. `models/review.js` — structured notes
+## 8. `models/review.js` — structured notes
 
 | Part | Note |
 |------|------|
@@ -103,7 +128,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 7. `utils/wrapAsync.js`
+## 9. `utils/wrapAsync.js`
 
 | Part | Note |
 |------|------|
@@ -112,7 +137,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 8. `utils/ExpressError.js`
+## 10. `utils/ExpressError.js`
 
 | Part | Note |
 |------|------|
@@ -121,7 +146,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 9. `init/index.js` — line-by-line notes
+## 11. `init/index.js` — line-by-line notes
 
 | Lines | What it does |
 |-------|----------------|
@@ -135,7 +160,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 10. `init/data.js` — short notes
+## 12. `init/data.js` — short notes
 
 | Part | Note |
 |------|------|
@@ -144,7 +169,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 11. EJS templates — behavior only (no HTML/CSS)
+## 13. EJS templates — behavior only (no HTML/CSS)
 
 ### Layout and partials
 
@@ -174,7 +199,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 ---
 
-## 12. `public/` folder
+## 14. `public/` folder
 
 | Path | Role |
 |------|------|
@@ -185,7 +210,9 @@ Use **root-absolute** asset URLs in the layout (e.g. **`/css/styles.css`**, **`/
 
 ---
 
-## 13. How requests flow (CRUD + reviews)
+## 15. How requests flow (CRUD + reviews)
+
+Handlers for steps 1–7 live in **`routes/listingRoutes.js`** and **`routes/reviewRoutes.js`**; **`app.js`** only mounts those routers and runs 404/error middleware.
 
 1. Browser **`GET /listings`** → **`find`** → **`index.ejs`**.
 2. **`GET /listings/new`** → form → **`POST /listings/new`** → validate / **`save`** → redirect **`GET /listings`**.
@@ -198,6 +225,6 @@ Use **root-absolute** asset URLs in the layout (e.g. **`/css/styles.css`**, **`/
 
 ---
 
-## 14. Related file
+## 16. Related file
 
 - **`README.md`** — Quick start, scripts, and GitHub-oriented overview for new contributors.
