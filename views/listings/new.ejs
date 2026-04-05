@@ -1,32 +1,48 @@
 <% layout("/layouts/boilerplate") %>
 
-    <body>
-        <h1>Add new listing</h1>
-        <form action="/listings/new" method="post" class="needs-validation new-listing" novalidate>
-            <div class="mb-3">
-                <label for="title" class="form-label">Title</label>
-                <input type="text" class="form-control" id="title" name="title" aria-describedby="title" required>
+    <h1>Add new listing</h1>
+    <form action="/listings/new" method="post" class="needs-validation new-listing" novalidate>
+        <div class="mb-3">
+            <label for="title" class="form-label">Title</label>
+            <input type="text" class="form-control" id="title" name="title" aria-describedby="title" required>
+            <div class="invalid-feedback">
+                Please provide a valid title.
             </div>
-            <div class="mb-3">
-                <label for="description" class="form-label">Description</label>
-                <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+            <div class="invalid-feedback">
+                Please provide a valid description.
             </div>
-            <div class="mb-3">
-                <label for="image" class="form-label">Image URL</label>
-                <input type="text" class="form-control" id="image" name="image" aria-describedby="image" required>
+        </div>
+        <div class="mb-3">
+            <label for="image" class="form-label">Image URL</label>
+            <input type="text" class="form-control" id="image" name="image" aria-describedby="image" required>
+            <div class="invalid-feedback">
+                Please provide an image.
             </div>
-            <div class="mb-3">
-                <label for="price" class="form-label">Price</label>
-                <input type="number" class="form-control" id="price" name="price" aria-describedby="price" required>
+        </div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" class="form-control" id="price" name="price" aria-describedby="price" required>
+            <div class="invalid-feedback">
+                Please provide a valid price.
             </div>
-            <div class="mb-3">
-                <label for="location" class="form-label">Location</label>
-                <input type="text" class="form-control" id="location" name="location" aria-describedby="location" required>
+        </div>
+        <div class="mb-3">
+            <label for="location" class="form-label">Location</label>
+            <input type="text" class="form-control" id="location" name="location" aria-describedby="location" required>
+            <div class="invalid-feedback">
+                Please provide a valid location.
             </div>
-            <div class="mb-3">
-                <label for="country" class="form-label">Country</label>
-                <input type="text" class="form-control" id="country" name="country" aria-describedby="country" required>
+        </div>
+        <div class="mb-3">
+            <label for="country" class="form-label">Country</label>
+            <input type="text" class="form-control" id="country" name="country" aria-describedby="country" required>
+            <div class="invalid-feedback">
+                Please provide a valid country.
             </div>
-            <button type="submit" class="btn btn-danger">Add New Listing</button>
-        </form>
-    </body>
+        </div>
+        <button type="submit" class="btn btn-danger">Add New Listing</button>
+    </form>
