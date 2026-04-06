@@ -8,11 +8,11 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Layer | What it is | Where it lives |
 |--------|------------|----------------|
-| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling, sessions + Passport | `app.js`, `routes/`, `controllers/`, `models/`, `init/` |
+| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling, **sessions stored in MongoDB** (**connect-mongo**) + Passport | `app.js`, `routes/`, `controllers/`, `models/`, `init/` |
 | **Config / uploads** | Cloudinary client + Multer storage; env vars | `cloudConfig.js` (loaded via `routes/listingRoutes.js`) |
 | **Server-rendered UI** | HTML produced on the server via EJS (not a separate SPA) | `views/` |
 | **Static assets** | Files sent as-is (CSS, client JS, future images) | `public/` |
-| **Shared route helpers** | Wrap async handlers and carry HTTP status for errors | `utils/` |
+| **Shared route helpers** | Wrap async handlers, HTTP errors, listing **category enum** + labels/icons | `utils/` |
 | **Auth / authorization middleware** | Reusable **`isLoggedIn`**, **`isOwner`**, **`isReviewOwner`** checks | `middleware.js` |
 | **Tooling / metadata** | Dependencies and lockfile | `package.json`, `package-lock.json` |
 
@@ -23,12 +23,12 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 - **`routes/`** declare paths and middleware order (**`isLoggedIn`**, **`isOwner`**, Multer) and call **`controllers/`** so HTTP wiring stays separate from DB/render logic.
 - **`controllers/`** holds async handlers (**listings**, **users**, **reviews**): easier to test and keeps **`routes/*.js`** short.
 - **`cloudConfig.js`** configures **Cloudinary** and **Multer**’s **`CloudinaryStorage`** so listing images are not stored on disk in the repo; **`dotenv`** runs at the top of **`app.js`** and again in **`cloudConfig.js`** so env vars exist before Cloudinary initializes.
-- **`utils/`** keeps error-handling patterns (`wrapAsync`, `ExpressError`) out of route files so handlers stay readable and the same helpers can be reused on new routes.
+- **`utils/`** keeps **`wrapAsync`**, **`ExpressError`**, and **`listingCategories.js`** (one list of allowed **`category`** values plus UI labels/icons) in one place so the **Mongoose enum**, **seed script**, **controllers**, and **index filters** never drift apart.
 - **`middleware.js`** centralizes “must be logged in” and “must own this listing/review” rules so **`routes/*.js`** stay thin and you do not duplicate **`req.isAuthenticated()`** and owner checks on every protected path.
 - **Views** let you edit pages without rereading all route code. **Dedicated error templates** (`views/error/`) separate “normal” pages from 404 and error responses.
 - **`init/`** is destructive (wipes listings); it must not run every time the server starts.
 - **`public/`** is separate so styles, scripts, and CDN links stay cacheable and paths stay predictable (`/css/...`, `/js/...`).
-- **`express-session` + `connect-flash`** keep short-lived messages across redirects (e.g. “listing added”) without putting that state in the URL; flash is read once, then cleared. **`passport`** + **`passport-local`** use the same session to log users in after **`passport-local-mongoose`** adds hash/salt fields and helpers on **`User`**.
+- **`express-session` + `connect-mongo`** persist session documents in the same MongoDB cluster as the app (**`mongoUrl`** from **`ATLAS_DB_URL`**); **`crypto.secret`** (from **`SESSION_SECRET`**) encrypts session payloads in the store. **`connect-flash`** keeps short-lived messages across redirects; flash is read once, then cleared. **`passport`** + **`passport-local`** use the same session after **`passport-local-mongoose`** extends **`User`**.
 
 ---
 
@@ -36,22 +36,23 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Path | Role |
 |------|------|
-| `app.js` | First line **`require("dotenv").config()`** so **`.env`** loads before routers (Cloudinary keys). Express: session + flash + **Passport**; **`res.locals`** flash + **`currentLoggedInUser`**; Mongo connect; mount routers; dev routes; 404 + error middleware. |
+| `app.js` | **`dotenv`** first. Mongo URL **`process.env.ATLAS_DB_URL`** for **`mongoose.connect`** and **`MongoStore.create`**. **`connect-mongo`** session store with **`crypto: { secret: SESSION_SECRET }`**; **`express-session`** + flash + **Passport**; **`res.locals`**; mount **`/listings`**, reviews, **`/user`**; dev routes **`/testListing`**, **`/demouser`**; **`GET /`** home is **commented** (root URL → **404**). |
 | `cloudConfig.js` | **`cloudinary.v2.config`** from **`process.env`** (`CLOUD_NAME` / `CLOUDINARY_CLOUD_NAME`, API key/secret aliases); exports **`CloudinaryStorage`** (**`airbnb_DEV`** folder, image formats). |
 | `middleware.js` | **`isLoggedIn`**, **`isOwner`**, **`isReviewOwner`** (see §5). |
-| `controllers/listings.js` | **Listing** CRUD + render: validate body + **`req.file`** on create; **`image.url`** / **`image.filename`** from Multer (**`req.file.path`** = Cloudinary **`secure_url`**, **`filename`** = **`public_id`**); **`$set`** update when replacing image optional. |
+| `controllers/listings.js` | **Listing** CRUD + render: **`index`** builds Mongo **`filter`** from **`?search=`** and **`?category=`** (see §19); create/update validate **`category`** + **`gstPercentage`**; Multer image fields as before; **`$set`** on patch. |
 | `controllers/users.js` | Signup (**`User.register`**, **`req.login`**), login page, post-login flash/redirect, **`req.logout`**. |
 | `controllers/reviews.js` | Add review (**`owner`**), delete review + **`$pull`** on listing. |
 | `routes/listingRoutes.js` | Wires **`ListingController`** + **`multer({ storage })`**; **`uploadListingImage`** / **`uploadListingImageOptional`** wrap **`upload.single("image")`** and redirect with flash on upload errors. |
 | `routes/reviewRoutes.js` | **`ReviewController.addReview`** / **`deleteReview`** with **`isLoggedIn`** / **`isReviewOwner`**. |
 | `routes/userRoutes.js` | **`UserController`** methods; **`passport.authenticate`** on **`POST /login`**. |
 | `models/user.js` | Mongoose **`User`** schema (**`email`** required) + **`passport-local-mongoose`** plugin (adds **`username`**, password hash/salt, **`authenticate`**, **`register`**, **`serializeUser`**, etc.). Resolves **`.default`** export for plugin v9 + CommonJS. |
-| `models/listing.js` | **`Listing`**: **`reviews`** refs, **`owner`** ref **`User`**, post-delete hook for reviews; imports **`User`** (schema ref). |
+| `models/listing.js` | **`Listing`**: **`category`** (**`String`**, enum from **`LISTING_CATEGORY_VALUES`**), **`gstPercentage`** (0–100); **`reviews`**, **`owner`**; post-delete hook; imports **`listingCategories`** for enum. |
 | `models/review.js` | **`Review`**: **`comment`**, **`rating`**, **`createdAt`**, **`owner`** ref **`User`**. |
+| `utils/listingCategories.js` | **`LISTING_CATEGORY_OPTIONS`** (value, label, Font Awesome icon) and **`LISTING_CATEGORY_VALUES`** for schema enum + **`GET /listings`** filters (e.g. **`camping`**, **`boats`**). |
 | `utils/wrapAsync.js` | Higher-order function: wraps async route handlers and forwards rejections to Express `next` (enables central error middleware). |
 | `utils/ExpressError.js` | Custom error class with `statusCode` and `message` for validation and client errors. |
 | `init/data.js` | Array of sample listing objects; exported as `{ data }`. |
-| `init/index.js` | Standalone script: connect, `deleteMany`, `insertMany` seed data. |
+| `init/index.js` | Seed script: **`deleteMany`**, map each **`data.js`** row with default **`owner`**, **`category`** (round-robin enum), **`gstPercentage`** (5/12/18 rotation), **`insertMany`**. |
 | `views/layouts/boilerplate.ejs` | ejs-mate layout: shared shell; includes navbar, **`flash`**, then **`<%- body -%>`**, footer; loads **`/js/script.js`**. |
 | `views/includes/navbar.ejs` / `footer.ejs` | Reusable partials included from the layout. |
 | `views/includes/flash.ejs` | Renders Bootstrap alerts when **`success`**, **`updated`**, **`deleted`**, or **`error`** locals are set (fed from **`connect-flash`** via **`app.js`**). |
@@ -70,7 +71,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 |---------------|------|
 | `"type": "commonjs"` | Uses `require` / `module.exports`, not ESM `import` by default. |
 | `"main": "app.js"` | Entry used conceptually; **`npm start`** runs **`node app.js`** (see `README.md` scripts). |
-| `dependencies` | **express**, **mongoose**, **ejs**, **ejs-mate**, **method-override**, **express-session**, **connect-flash**, **passport**, **passport-local**, **passport-local-mongoose**, **dotenv** — env file; **cloudinary**, **multer**, **multer-storage-cloudinary** — listing images to Cloudinary; **nodemon** — dev restart. |
+| `dependencies` | **express**, **mongoose**, **ejs**, **ejs-mate**, **method-override**, **express-session**, **connect-mongo** — Mongo-backed session store; **connect-flash**, **passport**, **passport-local**, **passport-local-mongoose**, **dotenv**; **cloudinary**, **multer**, **multer-storage-cloudinary**; **nodemon** — dev restart. |
 
 ---
 
@@ -78,22 +79,22 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1 | **`dotenv.config()`** — load **`.env`** before **`listingRoutes`** (which pulls in **`cloudConfig`**). |
-| 3–17 | Express, mongoose, **`path`**, **`method-override`**, **`ejs-mate`**, **`Listing`**, **`listingRoutes`**, **`reviewRoutes`**, **`userRoutes`**, session, flash, passport, **`LocalStrategy`**, **`User`**; Mongo URL **`airbnb`**. |
-| 20–29 | **`sessionOptions`**. |
-| 31–38 | ejs-mate, views, **`urlencoded`**, **`method-override`**, **`static`**, **`session`**, **`flash()`**. |
-| 40–44 | Passport **`initialize`**, **`session`**, **`LocalStrategy`**, serialize/deserialize. |
-| 47–55 | **`dbConnection`**. |
-| 57–65 | Flash → **`res.locals`** + **`currentLoggedInUser`**. |
-| 67–70 | **`GET /`**. |
-| 72–84 | **`GET /testListing`**. |
-| 86–94 | **`GET /demouser`**. |
-| 96–103 | Mount **`/listings`**, **`/listings/:id/reviews`**, **`/user`**. |
-| 105–108 | **404**. |
-| 110–114 | Error middleware. |
-| 116–118 | Listen **8080**. |
+| 1 | **`dotenv.config()`** — load **`.env`** before **`listingRoutes`** (**`cloudConfig`**). |
+| 3–19 | Express, mongoose, routers, **`express-session`**, **`MongoStore`** (**`require("connect-mongo").default`**), flash, Passport, **`User`**; **`URL = process.env.ATLAS_DB_URL`**. |
+| 21–31 | **`sessionSecret`** from **`process.env.SESSION_SECRET`** (dev fallback string). **`MongoStore.create({ mongoUrl: URL, touchAfter, crypto: { secret: sessionSecret } })`** — v6 API; do **not** pass **`mongoUrl`** into **`createWebCryptoAdapter`** (wrong API). |
+| 33–43 | **`sessionOptions`**: **`store`**, **`secret: sessionSecret`**, cookie **7d**, **`httpOnly`**. |
+| 45–58 | ejs-mate, views, **`urlencoded`**, **`method-override`**, **`static`**, **`session`**, **`flash()`**, Passport **`initialize`/`session`**, **`LocalStrategy`**, serialize/deserialize. |
+| 61–69 | **`dbConnection()`** → **`mongoose.connect(URL)`** (same **`ATLAS_DB_URL`** as session store). |
+| 71–79 | Flash → **`res.locals`** + **`currentLoggedInUser`**. |
+| 81–84 | **`GET /`** commented out (optional home). |
+| 86–108 | **`GET /testListing`**, **`GET /demouser`** (dev helpers). |
+| 110–117 | Mount **`/listings`**, nested reviews, **`/user`**. |
+| 119–128 | **404** + error middleware → **`error.ejs`**. |
+| 130–132 | Listen **8080**. |
 
-**Robustness / security notes (optional):** Move **`sessionOptions.secret`** to an environment variable for production. Invalid `:id` values can cause Mongoose **CastError**; validate **`ObjectId`** or check **`listing`** before render. **`isOwner`** / **`isReviewOwner`** assume **`listing.owner`** / **`review.owner`** exist; seed or legacy documents without **`owner`** can throw—normalize data or guard in middleware.
+**Robustness / security notes (optional):** Set a strong **`SESSION_SECRET`** in **`.env`** for production. Ensure **`ATLAS_DB_URL`** is set; **`URL`** undefined breaks mongoose and the session store. Invalid `:id` values can cause Mongoose **CastError**; validate **`ObjectId`** or check **`listing`** before render. **`isOwner`** / **`isReviewOwner`** assume **`listing.owner`** / **`review.owner`** exist; seed or legacy documents without **`owner`** can throw—normalize data or guard in middleware.
+
+**Note:** **`init/index.js`** uses a **hardcoded** local **`mongodb://127.0.0.1:27017/airbnb`** for seeding only; it does not read **`ATLAS_DB_URL`**. Align manually if you seed against Atlas.
 
 ---
 
@@ -123,7 +124,7 @@ Imports **`Listing`** and **`Review`** for DB lookups. Used as Express middlewar
 
 | File | Exports / role |
 |------|----------------|
-| **`listings.js`** | **`index`**, **`newListingView`**, **`newListingAdd`**, **`showListingDetails`**, **`showListingEditPage`**, **`updateListingDetails`**, **`deleteListing`**. Uses **`ExpressError`** for validation; create requires **`req.file`** from Multer. |
+| **`listings.js`** | Local **`escapeRegex()`** escapes regex metacharacters in the search string. **`index`**: trim **`req.query.search`**; if non-empty, **`filter.$or`** with one case-insensitive regex on **title**, **location**, **country**; if **`req.query.category`** is in **`LISTING_CATEGORY_VALUES`**, set **`filter.category`** (invalid or empty category is **ignored**, not an error). Renders **`index.ejs`** with **`allListings`**, **`search`**, **`activeCategory`**, **`listingCategoryOptions`**. **`newListingAdd` / `updateListingDetails`**: validate **`category`**, **`gstPercentage`**, image rules, etc. |
 | **`users.js`** | **`index`** (signup view), **`register`**, **`loginPage`**, **`login`** (post-auth flash/redirect), **`logout`**. |
 | **`reviews.js`** | **`addReview`**, **`deleteReview`**. |
 
@@ -182,10 +183,10 @@ Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1–4 | Import **`Schema`**, **`Review`**, **`User`**. |
-| 6–35 | **`listingSchema`**: **`title`** … **`country`**; **`reviews`** **`[ObjectId]`** ref **`Review`**; **`owner`** **`ObjectId`** ref **`User`**. |
-| 37–43 | **`post("findOneAndDelete")`** — **`Review.deleteMany`** for ids in **`listing.reviews`**. |
-| 45–47 | Export **`Listing`**. |
+| 1–5 | Import **`Schema`**, **`Review`**, **`User`**, **`LISTING_CATEGORY_VALUES`**. |
+| 7–47 | **`listingSchema`**: **`title`** … **`country`**; **`category`** (**`String`**, **`enum`**: **`LISTING_CATEGORY_VALUES`**, default **`rooms`**); **`gstPercentage`** (**`Number`**, 0–100, default 0); **`reviews`**; **`owner`**. |
+| 49–55 | **`post("findOneAndDelete")`** — **`Review.deleteMany`** for ids in **`listing.reviews`**. |
+| 57–59 | **`mongoose.model`** + **`module.exports`**. |
 
 ---
 
@@ -209,7 +210,18 @@ Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
 
 ---
 
-## 14. `utils/wrapAsync.js`
+## 14. `utils/listingCategories.js`
+
+| Export | Note |
+|--------|------|
+| **`LISTING_CATEGORY_OPTIONS`** | Array of **`{ value, label, icon }`**: **trending**, **rooms**, **iconic-cities**, **mountains**, **castles**, **amazing-pools**, **camping**, **farms**, **arctic**, **domes**, **boats**. **`value`** is stored in MongoDB and used in **`?category=`** URLs; **`icon`** is a Font Awesome class for **`index.ejs`**. |
+| **`LISTING_CATEGORY_VALUES`** | **`value`** strings only — used by **`mongoose`** **`enum`** and **`ListingController.index`** to validate query params. |
+
+**Why a separate file:** Adding a category in one place updates the schema, seed rotation, create/edit forms, and filter bar together.
+
+---
+
+## 15. `utils/wrapAsync.js`
 
 | Part | Note |
 |------|------|
@@ -218,7 +230,7 @@ Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
 
 ---
 
-## 15. `utils/ExpressError.js`
+## 16. `utils/ExpressError.js`
 
 | Part | Note |
 |------|------|
@@ -227,30 +239,29 @@ Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
 
 ---
 
-## 16. `init/index.js` — line-by-line notes
+## 17. `init/index.js` — line-by-line notes
 
 | Lines | What it does |
 |-------|----------------|
-| 1–4 | Mongoose, **`./data.js`** as **`initialData`**, **`Listing`**, same **`URL`** as **`app.js`**. |
-| 6–8 | **`dbConnection`** helper. |
-| 10–14 | Connect and log (same pattern as **`app.js`**). |
-| 17–21 | **`feedDB`**: **`Listing.deleteMany({})`**, **`Listing.insertMany(initialData.data)`**, log. |
-| 23 | Invoke **`feedDB()`** when the script runs. |
+| 1–5 | Mongoose, **`./data.js`**, **`Listing`**, **`LISTING_CATEGORY_VALUES`**, **`URL`** (**hardcoded** **`mongodb://127.0.0.1:27017/airbnb`** — not **`ATLAS_DB_URL`**). |
+| 7–15 | **`dbConnection`**; connect and log. |
+| 18–33 | **`feedDB`**: **`Listing.deleteMany({})`**; map each seed object with **`owner`** (default **`ObjectId`** string if missing), **`category`** (from row or round-robin over **`LISTING_CATEGORY_VALUES`**), **`gstPercentage`** (from row or rotate 5 / 12 / 18); **`insertMany(rows)`**; log. |
+| 35 | Invoke **`feedDB()`**. |
 
 **Caution:** This **empties** the listings collection every run. It does **not** clear the **`reviews`** collection; orphaned review documents are possible if you seed after deleting listings only via this script. (Deleting listings through the app runs the listing schema hook and `$pull` paths avoid leaving refs on the listing.)
 
 ---
 
-## 17. `init/data.js` — short notes
+## 18. `init/data.js` — short notes
 
 | Part | Note |
 |------|------|
-| Main body | Large **`sampleListings`** array: objects aligned with **`listingSchema`** fields used at insert time (title, description, image, price, location, country). Seeded documents typically have **no **`owner`**** until you assign one in the DB or create listings through the app. |
-| Last line | **`module.exports = { data: sampleListings }`** so **`init/index.js`** can **`require("./data.js")`** and use **`initialData.data`**. |
+| Main body | **`sampleListings`**: **`title`**, **`description`**, **`image`**, **`price`**, **`location`**, **`country`**. Optional **`owner`**, **`category`**, **`gstPercentage`** if present; otherwise **`init/index.js`** fills **`category`** / **`gst`** and default **`owner`**. |
+| Last line | **`module.exports = { data: sampleListings }`**. |
 
 ---
 
-## 18. EJS templates — behavior only (no HTML/CSS)
+## 19. EJS templates — behavior only (no HTML/CSS)
 
 ### Layout and partials
 
@@ -267,10 +278,41 @@ Any view rendered through **`boilerplate`** receives **`success`**, **`updated`*
 
 | File | Layout | Data / actions |
 |------|--------|----------------|
-| **`listings/index.ejs`** | `layout("/layouts/boilerplate")` | Expects **`allListings`**; loops; links to **`/listings/:id`**. |
-| **`listings/new.ejs`** | Same | **`multipart/form-data`**; file field **`name="image"`**; **`POST /listings/new`**. |
+| **`listings/index.ejs`** | See **§19.1** below (search, category filters, tax toggle, query string helpers). |
+| **`listings/new.ejs`** | Same | **`multipart/form-data`**; **`category`** `<select>` from **`listingCategoryOptions`**; **`gstPercentage`**; file **`name="image"`**; **`POST /listings/new`**. |
 | **`listings/show.ejs`** | Same | Expects **`listing`** with **`owner`** and **`reviews`** populated (reviews include **`owner`**). Uses **`currentLoggedInUser`** for UI toggles; compare user id to **`listing.owner`** / **`review.owner`** with **`String(...)`** (not **`===`** on **`ObjectId`**). Review **`POST`** and listing edit/delete are also guarded by **`middleware.js`** on the server. |
-| **`listings/update.ejs`** | Same | **`multipart/form-data`**, **`?_method=PATCH`**; optional new **`image`** file; shows current image preview. |
+| **`listings/update.ejs`** | Same | **`category`**, **`gstPercentage`**; **`multipart`**, **`?_method=PATCH`**; optional **`image`**; current image preview. |
+
+### 19.1 Listings index — search, filters, and matching listings (behavior)
+
+**Template helpers (top of `index.ejs`):** **`enc(v)`** → **`encodeURIComponent`** for safe query strings. **`qsAll`** → **`?search=...`** when there is a search term (for the **All** chip). **`qsCat(cat)`** → **`?search=...&category=...`** with both parts only if needed — keeps search when switching category.
+
+| Mechanism | How it works |
+|-----------|----------------|
+| **Search** | **`GET`** form **`action="/listings"`**, **`method="get"`**, **`type="search"`** input **`name="search"`**, placeholder “Search destinations”. Submitting sends **`?search=...`**. If **`activeCategory`** is set, a **hidden** **`name="category"`** input keeps it so **search ∧ category** both apply. Empty search means no **`$or`** filter (all titles/locations/countries allowed, subject to category). |
+| **Backend** | **`ListingController.index`** (§7): **`escapeRegex(search)`** then **`RegExp(..., "i")`** on **title**, **location**, **country** via **`$or`**. **`category`** query must match **`LISTING_CATEGORY_VALUES`** exactly (e.g. **`boats`**, not “boat”); otherwise it is ignored. **`Listing.find(filter)`**. |
+| **Category chips** | Each chip links to **`/listings<%= qsCat(opt.value) %>`** → e.g. **`/listings?category=camping`**, **`/listings?search=goa&category=boats`**. **All** → **`/listings`** or **`/listings?search=...`** only (**`qsAll`**). |
+| **Icons / labels** | Loop **`listingCategoryOptions`**; **`opt.value`** in URL, **`opt.label`** + **`opt.icon`** on the chip. |
+| **Tax toggle** | Inline **`<script>`**: **`formatInr`**, **`renderPrices(showTax)`** on **`.listing-price-line`** using **`data-base-price`** / **`data-gst-pct`**; toggle **“Display total after taxes”**. Client-side only. |
+| **Empty state** | **`!allListings.length`** → short message to try another search or category. |
+
+**Stored `category` values (must match DB field; used in `?category=`):**
+
+| `?category=` value | UI label (chips) |
+|--------------------|------------------|
+| `trending` | Trending |
+| `rooms` | Rooms |
+| `iconic-cities` | Iconic Cities |
+| `mountains` | Mountains |
+| `castles` | Castles |
+| `amazing-pools` | Amazing Pools |
+| `camping` | Camping |
+| `farms` | Farms |
+| `arctic` | Arctic |
+| `domes` | Domes |
+| `boats` | Boats |
+
+**Matching logic:** A listing appears only if its **`category`** field equals the selected chip value **and** (if **`search`** is non-empty) **at least one** of **title / location / country** matches the search string. New listings get **`category`** from the create form; seed data may assign categories in **`init/index.js`**.
 
 ### User (auth) pages
 
@@ -290,7 +332,7 @@ Any view rendered through **`boilerplate`** receives **`success`**, **`updated`*
 
 ---
 
-## 19. `public/` folder
+## 20. `public/` folder
 
 | Path | Role |
 |------|------|
@@ -301,21 +343,21 @@ Use **root-absolute** asset URLs in the layout (e.g. **`/css/styles.css`**, **`/
 
 ---
 
-## 20. How requests flow (CRUD + reviews + auth + uploads)
+## 21. How requests flow (CRUD + reviews + auth + uploads + browse filters)
 
-**`routes/`** + **`controllers/`** + **`middleware.js`**; **`app.js`** mounts stack; **`cloudConfig`** used only on listing create/update with a file.
+**`routes/`** + **`controllers/`** + **`middleware.js`**; **`app.js`** mounts stack; **`cloudConfig`** for image uploads.
 
-1. **`GET /listings`** → **`ListingController.index`**.
-2. **`POST /listings/new`** → **`isLoggedIn`** → Multer → Cloudinary → **`newListingAdd`** (**`owner`**, **`image`** from **`req.file`**) → flash.
+1. **`GET /listings`** → **`ListingController.index`**. Optional **`?search=`** (title / location / country) and **`?category=`** (enum). Renders **`index.ejs`** with filtered **`allListings`**.
+2. **`POST /listings/new`** → **`isLoggedIn`** → Multer → Cloudinary → **`newListingAdd`** (**`owner`**, **`category`**, **`gstPercentage`**, **`image`**) → flash.
 3. **`GET /listings/:id`** → nested populate → **`show.ejs`**.
 4. Reviews → **`ReviewController`** + auth middleware.
-5. **`PATCH /listings/:id`** → **`isOwner`** → optional **`uploadListingImageOptional`** → **`$set`** fields and maybe **`image`**.
+5. **`PATCH /listings/:id`** → **`isOwner`** → optional image → **`$set`** including **`category`** / **`gstPercentage`**.
 6. Unmatched → **404**; **`ExpressError`** / async errors → **`error.ejs`**.
 
-**Auth:** **`UserController`** + Passport on user routes (see §10).
+**Auth:** **`UserController`** + Passport on user routes (see §10). **Sessions** persist in Mongo via **`connect-mongo`** (see §4).
 
 ---
 
-## 21. Related file
+## 22. Related file
 
 - **`README.md`** — Quick start, scripts, and GitHub-oriented overview for new contributors.

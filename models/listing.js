@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
 const Review = require("./review.js");
 const User = require("./user.js");
+const { LISTING_CATEGORY_VALUES } = require("../utils/listingCategories.js");
 
 const listingSchema = new Schema({
     title: {
@@ -22,6 +23,17 @@ const listingSchema = new Schema({
     price: Number,
     location: String,
     country: String,
+    category: {
+        type: String,
+        enum: LISTING_CATEGORY_VALUES,
+        default: "rooms",
+    },
+    gstPercentage: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100,
+    },
     reviews: [
         {
             type: Schema.Types.ObjectId,

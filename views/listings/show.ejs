@@ -11,7 +11,14 @@
             <p class="card-text">
                 <%= listing.description %>
             </p>
-            <p>&#8377;<%= listing.price.toLocaleString('en-IN') %>/night</p>
+            <p>&#8377;<%= (Number(listing.price) || 0).toLocaleString('en-IN') %>/night
+                <% if (listing.gstPercentage) { %>
+                <span class="text-muted small">(+ <%= listing.gstPercentage %>% GST)</span>
+                <% } %>
+            </p>
+            <% if (listing.category) { %>
+            <p class="small text-capitalize text-muted">Category: <%= listing.category.replace(/-/g, ' ') %></p>
+            <% } %>
             <p>
                 <%= listing.location %>, <%= listing.country %>
             </p>

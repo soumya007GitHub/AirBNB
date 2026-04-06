@@ -1,20 +1,109 @@
 <% layout("/layouts/boilerplate") %>
+<%
+  const enc = (v) => encodeURIComponent(v || '');
+  const qsAll = search ? ('?search=' + enc(search)) : '';
+  const qsCat = (cat) => {
+    const parts = [];
+    if (search) parts.push('search=' + enc(search));
+    if (cat) parts.push('category=' + enc(cat));
+    return parts.length ? ('?' + parts.join('&')) : '';
+  };
+%>
+<div class="listings-explore-header mb-3">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <span class="fw-semibold text-secondary">Explore</span>
+    </div>
+    <form action="/listings" method="get" class="listings-search-form d-flex flex-wrap align-items-stretch gap-2">
+        <% if (activeCategory) { %>
+        <input type="hidden" name="category" value="<%= activeCategory %>">
+        <% } %>
+        <input type="search" name="search" class="form-control form-control-lg flex-grow-1 rounded-pill px-4"
+            placeholder="Search destinations" value="<%= search %>" aria-label="Search by title, location, or country">
+        <button type="submit" class="btn btn-danger rounded-pill px-4 d-flex align-items-center gap-2">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <span>Search</span>
+        </button>
+    </form>
+</div>
 
-<h1>All Listings</h1>
-<div class="row listings-row g-4">
-    <% for(let listing of allListings){ %>
-        <div class="col-lg-3 col-md-4 col-sm-6 col-12">
-            <div class="card listing-card h-100">
-                <a href="/listings/<%= listing._id %>">
-                    <img src="<%= listing.image.url %>" class="card-img-top" alt="<%= listing.image.filename %>">
-                    <div class="card-body">
-                        <h3><%= listing.title %></h3>
-                        <p class="card-text"><%= listing.description %></p>
-                        <p class="mb-1">&#8377; <%= listing.price.toLocaleString('en-IN') %>/night</p>
-                        <p class="mb-0 text-muted small"><%= listing.location %>, <%= listing.country %></p>
-                    </div>
-                </a>
-            </div>
+<div class="listings-filters-bar d-flex flex-wrap align-items-center justify-content-between gap-3 py-3 border-top border-bottom mb-4">
+    <div class="category-filter-scroll d-flex flex-nowrap gap-2 overflow-auto pb-1 flex-grow-1">
+        <a href="/listings<%= qsAll %>"
+            class="category-filter-btn category-filter-btn--all flex-shrink-0 <%= !activeCategory ? 'category-filter-btn--active' : '' %>">
+            All
+        </a>
+        <% for (let opt of listingCategoryOptions) { %>
+        <a href="/listings<%= qsCat(opt.value) %>"
+            class="category-filter-btn flex-shrink-0 d-flex flex-column align-items-center gap-1 <%= activeCategory === opt.value ? 'category-filter-btn--active' : '' %>">
+            <i class="<%= opt.icon %> fa-lg category-filter-icon" aria-hidden="true"></i>
+            <span class="category-filter-label text-nowrap small"><%= opt.label %></span>
+        </a>
+        <% } %>
+    </div>
+    <div class="tax-toggle-wrap d-flex align-items-center gap-2 border rounded-pill px-3 py-2 bg-white flex-shrink-0">
+        <label class="small mb-0 text-nowrap" for="toggleTaxTotal">Display total after taxes</label>
+        <div class="form-check form-switch m-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="toggleTaxTotal"
+                aria-label="Show price including GST">
         </div>
+    </div>
+</div>
+
+<h1 class="h4 mb-3">All Listings</h1>
+
+<% if (!allListings.length) { %>
+<p class="text-muted">No listings match your filters. Try another search or category.</p>
+<% } %>
+
+<div class="row listings-row g-4">
+    <% for (let listing of allListings) { %>
+    <% const base = Number(listing.price) || 0; const gst = Number(listing.gstPercentage) || 0; %>
+    <div class="col-lg-3 col-md-4 col-sm-6 col-12">
+        <div class="card listing-card h-100">
+            <a href="/listings/<%= listing._id %>">
+                <img src="<%= listing.image.url %>" class="card-img-top" alt="<%= listing.image.filename %>">
+                <div class="card-body">
+                    <h3 class="h6"><%= listing.title %></h3>
+                    <p class="card-text small"><%= listing.description %></p>
+                    <p class="mb-1 listing-price-line"
+                        data-base-price="<%= base %>"
+                        data-gst-pct="<%= gst %>">
+                        <span class="price-display fw-semibold"></span>
+                        <span class="text-muted small d-block gst-hint d-none">incl. <%= gst %>% GST</span>
+                    </p>
+                    <p class="mb-0 text-muted small"><%= listing.location %>, <%= listing.country %></p>
+                    <% if (listing.category) { %>
+                    <span class="badge bg-light text-dark border mt-2 text-capitalize"><%= String(listing.category).replace(/-/g, ' ') %></span>
+                    <% } %>
+                </div>
+            </a>
+        </div>
+    </div>
     <% } %>
 </div>
+
+<script>
+(function () {
+  function formatInr(n) {
+    return '\u20B9' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }) + '/night';
+  }
+  function renderPrices(showTax) {
+    document.querySelectorAll('.listing-price-line').forEach(function (el) {
+      var base = parseFloat(el.getAttribute('data-base-price'), 10) || 0;
+      var gst = parseFloat(el.getAttribute('data-gst-pct'), 10) || 0;
+      var total = base + (base * gst / 100);
+      var span = el.querySelector('.price-display');
+      var hint = el.querySelector('.gst-hint');
+      if (span) span.textContent = formatInr(showTax ? total : base);
+      if (hint) hint.classList.toggle('d-none', !showTax || gst <= 0);
+    });
+  }
+  var toggle = document.getElementById('toggleTaxTotal');
+  if (toggle) {
+    toggle.addEventListener('change', function () {
+      renderPrices(toggle.checked);
+    });
+  }
+  renderPrices(false);
+})();
+</script>

@@ -63,6 +63,78 @@ body{
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
+
+.listings-search-form .form-control {
+    min-width: 12rem;
+}
+
+.category-filter-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.category-filter-btn {
+    min-width: 4.5rem;
+    padding: 0.75rem 1rem;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: #717171;
+    text-decoration: none;
+    border-radius: 0.75rem;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.category-filter-btn--all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+}
+
+.category-filter-btn:hover {
+    color: #222222;
+    background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+.category-filter-btn:focus,
+.category-filter-btn:active {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.category-filter-btn:focus-visible {
+    outline: 2px solid #fe424d;
+    outline-offset: 2px;
+}
+
+.category-filter-btn--active {
+    color: #fe424d !important;
+    background: transparent !important;
+    font-weight: 700;
+}
+
+.category-filter-btn--active:hover {
+    color: #fe424d !important;
+    background-color: rgba(254, 66, 77, 0.06) !important;
+}
+
+.category-filter-btn--active .category-filter-icon {
+    color: #fe424d;
+}
+
+.category-filter-btn--active .category-filter-label {
+    font-weight: 700;
+    color: #fe424d;
+}
+
+.category-filter-icon {
+    color: inherit;
+}
+
+.tax-toggle-wrap .form-check-input {
+    cursor: pointer;
+}
 .new-listing{
     margin: 1rem 0;
 }

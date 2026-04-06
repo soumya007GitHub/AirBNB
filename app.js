@@ -11,14 +11,28 @@ const listingRoutes = require("./routes/listingRoutes.js");
 const reviewRoutes = require("./routes/reviewRoutes.js");
 const userRoutes = require("./routes/userRoutes.js");
 const session = require("express-session");
+const MongoStore = require("connect-mongo").default;
 const flash = require("connect-flash");
 const passport = require("passport");
 const LocalStrategy = require("passport-local");
 const User = require("./models/user.js");
-const URL = "mongodb://127.0.0.1:27017/airbnb";
+const URL = process.env.ATLAS_DB_URL;
+
+// connect-mongo v6: use MongoStore.create({ mongoUrl, crypto }) — not createWebCryptoAdapter({ mongoUrl, crypto })
+const sessionSecret =
+    process.env.SESSION_SECRET || "dev-only-session-secret-change-in-production";
+
+const store = MongoStore.create({
+    mongoUrl: URL,
+    touchAfter: 24 * 3600,
+    crypto: {
+        secret: sessionSecret,
+    },
+});
 
 const sessionOptions = {
-    secret: "@$^*()*^$",
+    store,
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: true,
     cookie: {
@@ -65,9 +79,9 @@ app.use((req, res, next) => {
 })
 
 // Testing route
-app.get("/", (req, res) => {
-    res.send("This is sample test home route");
-})
+// app.get("/", (req, res) => {
+//     res.send("This is sample test home route");
+// })
 
 // Sample listing save route
 app.get("/testListing", async (req, res) => {

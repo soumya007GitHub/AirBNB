@@ -29,7 +29,23 @@
             <div class="form-text">Leave empty to keep the current image.</div>
         </div>
         <div class="mb-3">
-            <label for="price" class="form-label">Price</label>
+            <label for="category" class="form-label">Category</label>
+            <% const selectedCategory = listing.category || 'rooms'; %>
+            <select class="form-select" id="category" name="category" required>
+                <% for (let opt of listingCategoryOptions) { %>
+                <option value="<%= opt.value %>" <%= selectedCategory === opt.value ? 'selected' : '' %>><%= opt.label %></option>
+                <% } %>
+            </select>
+            <div class="invalid-feedback">Please select a category.</div>
+        </div>
+        <div class="mb-3">
+            <label for="gstPercentage" class="form-label">GST (%)</label>
+            <input type="number" class="form-control" id="gstPercentage" name="gstPercentage" min="0" max="100" step="0.01"
+                value="<%= listing.gstPercentage != null ? listing.gstPercentage : 0 %>" required>
+            <div class="invalid-feedback">Enter a value between 0 and 100.</div>
+        </div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price (per night, before tax)</label>
             <input type="number" class="form-control" id="price" name="price" aria-describedby="price"
                 value="<%= listing.price %>" required>
             <div class="invalid-feedback">
