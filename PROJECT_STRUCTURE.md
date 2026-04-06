@@ -8,21 +8,27 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Layer | What it is | Where it lives |
 |--------|------------|----------------|
-| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling | `app.js`, `routes/`, `models/`, `init/` |
+| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling, sessions + Passport | `app.js`, `routes/`, `controllers/`, `models/`, `init/` |
+| **Config / uploads** | Cloudinary client + Multer storage; env vars | `cloudConfig.js` (loaded via `routes/listingRoutes.js`) |
 | **Server-rendered UI** | HTML produced on the server via EJS (not a separate SPA) | `views/` |
 | **Static assets** | Files sent as-is (CSS, client JS, future images) | `public/` |
 | **Shared route helpers** | Wrap async handlers and carry HTTP status for errors | `utils/` |
+| **Auth / authorization middleware** | Reusable **`isLoggedIn`**, **`isOwner`**, **`isReviewOwner`** checks | `middleware.js` |
 | **Tooling / metadata** | Dependencies and lockfile | `package.json`, `package-lock.json` |
 
 **Why not one file?**
 
 - **Routes + DB + HTML in one file** becomes impossible to navigate and risky to change (one typo breaks everything).
 - **Models** define data shape once; both the web app and the seed script reuse them. **Reviews** live in their own model so listing documents stay a reasonable size and review CRUD stays clear.
-- **`routes/`** splits listing vs review HTTP handlers into modules; `app.js` only mounts routers and shared middleware so each file stays small and focused.
+- **`routes/`** declare paths and middleware order (**`isLoggedIn`**, **`isOwner`**, Multer) and call **`controllers/`** so HTTP wiring stays separate from DB/render logic.
+- **`controllers/`** holds async handlers (**listings**, **users**, **reviews**): easier to test and keeps **`routes/*.js`** short.
+- **`cloudConfig.js`** configures **Cloudinary** and **Multer**’s **`CloudinaryStorage`** so listing images are not stored on disk in the repo; **`dotenv`** runs at the top of **`app.js`** and again in **`cloudConfig.js`** so env vars exist before Cloudinary initializes.
 - **`utils/`** keeps error-handling patterns (`wrapAsync`, `ExpressError`) out of route files so handlers stay readable and the same helpers can be reused on new routes.
+- **`middleware.js`** centralizes “must be logged in” and “must own this listing/review” rules so **`routes/*.js`** stay thin and you do not duplicate **`req.isAuthenticated()`** and owner checks on every protected path.
 - **Views** let you edit pages without rereading all route code. **Dedicated error templates** (`views/error/`) separate “normal” pages from 404 and error responses.
 - **`init/`** is destructive (wipes listings); it must not run every time the server starts.
 - **`public/`** is separate so styles, scripts, and CDN links stay cacheable and paths stay predictable (`/css/...`, `/js/...`).
+- **`express-session` + `connect-flash`** keep short-lived messages across redirects (e.g. “listing added”) without putting that state in the URL; flash is read once, then cleared. **`passport`** + **`passport-local`** use the same session to log users in after **`passport-local-mongoose`** adds hash/salt fields and helpers on **`User`**.
 
 ---
 
@@ -30,18 +36,27 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Path | Role |
 |------|------|
-| `app.js` | Express app: middleware, Mongo connection, mount **`listingRoutes`** and **`reviewRoutes`**, test routes, 404 and error middleware. |
-| `routes/listingRoutes.js` | `Router` for paths under **`/listings`**: index, new, create, show, edit, patch, delete. |
-| `routes/reviewRoutes.js` | `Router` mounted at **`/listings/:id/reviews`**: create review (**`POST /`**) and delete (**`GET /:reviewId`**). Uses **`mergeParams: true`** so **`req.params.id`** is the listing id. |
-| `models/listing.js` | Mongoose `Listing` schema; `reviews` refs; post-hook to delete related reviews when a listing is removed. |
-| `models/review.js` | Mongoose `Review` schema (`comment`, `rating`, `createdAt`). |
+| `app.js` | First line **`require("dotenv").config()`** so **`.env`** loads before routers (Cloudinary keys). Express: session + flash + **Passport**; **`res.locals`** flash + **`currentLoggedInUser`**; Mongo connect; mount routers; dev routes; 404 + error middleware. |
+| `cloudConfig.js` | **`cloudinary.v2.config`** from **`process.env`** (`CLOUD_NAME` / `CLOUDINARY_CLOUD_NAME`, API key/secret aliases); exports **`CloudinaryStorage`** (**`airbnb_DEV`** folder, image formats). |
+| `middleware.js` | **`isLoggedIn`**, **`isOwner`**, **`isReviewOwner`** (see §5). |
+| `controllers/listings.js` | **Listing** CRUD + render: validate body + **`req.file`** on create; **`image.url`** / **`image.filename`** from Multer (**`req.file.path`** = Cloudinary **`secure_url`**, **`filename`** = **`public_id`**); **`$set`** update when replacing image optional. |
+| `controllers/users.js` | Signup (**`User.register`**, **`req.login`**), login page, post-login flash/redirect, **`req.logout`**. |
+| `controllers/reviews.js` | Add review (**`owner`**), delete review + **`$pull`** on listing. |
+| `routes/listingRoutes.js` | Wires **`ListingController`** + **`multer({ storage })`**; **`uploadListingImage`** / **`uploadListingImageOptional`** wrap **`upload.single("image")`** and redirect with flash on upload errors. |
+| `routes/reviewRoutes.js` | **`ReviewController.addReview`** / **`deleteReview`** with **`isLoggedIn`** / **`isReviewOwner`**. |
+| `routes/userRoutes.js` | **`UserController`** methods; **`passport.authenticate`** on **`POST /login`**. |
+| `models/user.js` | Mongoose **`User`** schema (**`email`** required) + **`passport-local-mongoose`** plugin (adds **`username`**, password hash/salt, **`authenticate`**, **`register`**, **`serializeUser`**, etc.). Resolves **`.default`** export for plugin v9 + CommonJS. |
+| `models/listing.js` | **`Listing`**: **`reviews`** refs, **`owner`** ref **`User`**, post-delete hook for reviews; imports **`User`** (schema ref). |
+| `models/review.js` | **`Review`**: **`comment`**, **`rating`**, **`createdAt`**, **`owner`** ref **`User`**. |
 | `utils/wrapAsync.js` | Higher-order function: wraps async route handlers and forwards rejections to Express `next` (enables central error middleware). |
 | `utils/ExpressError.js` | Custom error class with `statusCode` and `message` for validation and client errors. |
 | `init/data.js` | Array of sample listing objects; exported as `{ data }`. |
 | `init/index.js` | Standalone script: connect, `deleteMany`, `insertMany` seed data. |
-| `views/layouts/boilerplate.ejs` | ejs-mate layout: shared shell, `<%- body %>`, includes navbar/footer, loads `/js/script.js`. |
+| `views/layouts/boilerplate.ejs` | ejs-mate layout: shared shell; includes navbar, **`flash`**, then **`<%- body -%>`**, footer; loads **`/js/script.js`**. |
 | `views/includes/navbar.ejs` / `footer.ejs` | Reusable partials included from the layout. |
+| `views/includes/flash.ejs` | Renders Bootstrap alerts when **`success`**, **`updated`**, **`deleted`**, or **`error`** locals are set (fed from **`connect-flash`** via **`app.js`**). |
 | `views/listings/*.ejs` | Page bodies for list / new / show / edit; use `layout(...)` and server variables. |
+| `views/users/signup.ejs` / `login.ejs` | Auth forms posting to **`/user/signup`** and **`/user/login`**; use boilerplate + **`needs-validation`**. |
 | `views/error/404.ejs` | Rendered for unknown routes (after all other handlers). |
 | `views/error/error.ejs` | Rendered by Express error middleware; expects `statusCode` and `message`. |
 | `public/css/styles.css` | Site styles (not documented here). |
@@ -55,7 +70,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 |---------------|------|
 | `"type": "commonjs"` | Uses `require` / `module.exports`, not ESM `import` by default. |
 | `"main": "app.js"` | Entry used conceptually; **`npm start`** runs **`node app.js`** (see `README.md` scripts). |
-| `dependencies` | **express** — HTTP framework; **mongoose** — MongoDB ODM; **ejs** — templates; **ejs-mate** — layouts/blocks; **method-override** — treat POST as PATCH for HTML forms; **nodemon** — dev auto-restart (listed as a dependency). |
+| `dependencies` | **express**, **mongoose**, **ejs**, **ejs-mate**, **method-override**, **express-session**, **connect-flash**, **passport**, **passport-local**, **passport-local-mongoose**, **dotenv** — env file; **cloudinary**, **multer**, **multer-storage-cloudinary** — listing images to Cloudinary; **nodemon** — dev restart. |
 
 ---
 
@@ -63,72 +78,138 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1–10 | Load Express, mongoose, **`path`**, **`method-override`**, **`ejs-mate`**, **`Listing`** (for **`/testListing` only**), **`listingRoutes`**, **`reviewRoutes`**; Mongo URL for DB **`airbnb`**. |
-| 11–17 | Register ejs-mate; EJS views under **`./views`**; URL-encoded bodies; **`_method`** override; static files from **`public/`**. |
-| 19–27 | `dbConnection`: **`mongoose.connect`**; log success/failure. |
-| 29–32 | **`GET /`** — text smoke test. |
-| 34–46 | **`GET /testListing`** — create one hard-coded **`Listing`**, save, respond (dev helper; not wrapped in **`wrapAsync`**). |
-| 48–49 | **`app.use("/listings", listingRoutes)`** — listing CRUD is defined in **`routes/listingRoutes.js`**. |
-| 51–52 | **`app.use("/listings/:id/reviews", reviewRoutes)`** — review routes; **`reviewRoutes`** uses **`mergeParams: true`** so **`req.params.id`** is the listing id. |
-| 54–57 | **404 middleware** — catches unmatched routes; **`res.status(404).render("error/404.ejs")`**. |
-| 59–63 | **Error middleware** — four arguments; reads **`err.statusCode`** / **`err.message`**; renders **`error/error.ejs`**. |
-| 65–67 | Listen on port **8080**. |
+| 1 | **`dotenv.config()`** — load **`.env`** before **`listingRoutes`** (which pulls in **`cloudConfig`**). |
+| 3–17 | Express, mongoose, **`path`**, **`method-override`**, **`ejs-mate`**, **`Listing`**, **`listingRoutes`**, **`reviewRoutes`**, **`userRoutes`**, session, flash, passport, **`LocalStrategy`**, **`User`**; Mongo URL **`airbnb`**. |
+| 20–29 | **`sessionOptions`**. |
+| 31–38 | ejs-mate, views, **`urlencoded`**, **`method-override`**, **`static`**, **`session`**, **`flash()`**. |
+| 40–44 | Passport **`initialize`**, **`session`**, **`LocalStrategy`**, serialize/deserialize. |
+| 47–55 | **`dbConnection`**. |
+| 57–65 | Flash → **`res.locals`** + **`currentLoggedInUser`**. |
+| 67–70 | **`GET /`**. |
+| 72–84 | **`GET /testListing`**. |
+| 86–94 | **`GET /demouser`**. |
+| 96–103 | Mount **`/listings`**, **`/listings/:id/reviews`**, **`/user`**. |
+| 105–108 | **404**. |
+| 110–114 | Error middleware. |
+| 116–118 | Listen **8080**. |
 
-**Robustness note (optional improvement):** Invalid `:id` values can cause Mongoose **CastError**. Checking **`mongoose.isValidObjectId(id)`** before `findById` avoids that; checking **`if (!listing)`** avoids null dereference in templates.
+**Robustness / security notes (optional):** Move **`sessionOptions.secret`** to an environment variable for production. Invalid `:id` values can cause Mongoose **CastError**; validate **`ObjectId`** or check **`listing`** before render. **`isOwner`** / **`isReviewOwner`** assume **`listing.owner`** / **`review.owner`** exist; seed or legacy documents without **`owner`** can throw—normalize data or guard in middleware.
 
 ---
 
-## 5. `routes/listingRoutes.js` — structured notes
+## 5. `middleware.js` — structured notes
+
+| Export | Note |
+|--------|------|
+| **`isLoggedIn`** | If **`!req.isAuthenticated()`**, **`flash("error", "Please login to continue")`** and redirect **`/listings`**; else **`next()`**. |
+| **`isOwner`** | **`Listing.findById(id)`** from **`req.params`**; if missing listing → flash + redirect **`/listings`**; if **`!listing.owner.equals(res.locals.currentLoggedInUser._id)`** → flash “not owner” + redirect **`/listings/:id`**; else **`next()`**. |
+| **`isReviewOwner`** | **`Review.findById(reviewId)`**; if missing → flash + **`/listings`**; if **`!review.owner.equals(res.locals.currentLoggedInUser._id)`** → flash + redirect show listing; else **`next()`**. |
+
+Imports **`Listing`** and **`Review`** for DB lookups. Used as Express middleware **before** **`wrapAsync`** handlers on protected routes.
+
+---
+
+## 6. `cloudConfig.js` — structured notes
 
 | Part | Note |
 |------|------|
-| **`express.Router({ mergeParams: true })`** | Consistent with the review router; listing paths do not rely on parent params but the option is harmless. |
-| **`GET /`** (full URL **`GET /listings`**) | **`Listing.find({})`**, render **`listings/index.ejs`** with **`allListings`**. |
-| **`GET /new`** | Render create form. |
-| **`POST /new`** | Validate body or **`throw new ExpressError(400, ...)`**; build **`Listing`** with **`image: { url }`**; save; redirect **`/listings`**. |
-| **`GET /:id`** | **`findById`** + **`populate("reviews")`**; render **`show.ejs`**. **Must stay after** **`/new`** so **`new` is not parsed as an id. |
-| **`GET /:id/edit`** | **`findById`**; render **`update.ejs`**. |
-| **`PATCH /:id`** | **`findByIdAndUpdate`**; default image URL if missing; redirect **`/listings`**. |
-| **`GET /:id/delete`** | **`findByIdAndDelete`** (triggers listing schema hook for reviews); redirect **`/listings`**. |
-
-Imports **`Listing`**, **`wrapAsync`**, **`ExpressError`**.
+| **`dotenv.config()`** | Ensures env vars exist when this module is loaded (e.g. if required before **`app.js`** finishes). |
+| **Cloudinary** | Reads **`CLOUD_NAME`** (or **`CLOUDINARY_CLOUD_NAME`**) and matching API key/secret aliases; warns if missing. |
+| **`CloudinaryStorage`** | Multer storage: uploads to folder **`airbnb_DEV`**; **`allowed_formats`** png/jpg/jpeg/webp. Uploaded file info exposed on **`req.file.path`** (secure URL) and **`req.file.filename`** (**`public_id`**). |
 
 ---
 
-## 6. `routes/reviewRoutes.js` — structured notes
+## 7. `controllers/` — structured notes
+
+| File | Exports / role |
+|------|----------------|
+| **`listings.js`** | **`index`**, **`newListingView`**, **`newListingAdd`**, **`showListingDetails`**, **`showListingEditPage`**, **`updateListingDetails`**, **`deleteListing`**. Uses **`ExpressError`** for validation; create requires **`req.file`** from Multer. |
+| **`users.js`** | **`index`** (signup view), **`register`**, **`loginPage`**, **`login`** (post-auth flash/redirect), **`logout`**. |
+| **`reviews.js`** | **`addReview`**, **`deleteReview`**. |
+
+Controllers use **`req.flash`** and **`res.redirect`** / **`res.render`**; they do not register routes—**`routes/*.js`** does.
+
+---
+
+## 8. `routes/listingRoutes.js` — structured notes
 
 | Part | Note |
 |------|------|
-| **`mergeParams: true`** | Required: router is mounted at **`/listings/:id/reviews`**, so **`req.params.id`** must come from the parent path. |
-| **`POST /`** (full URL **`POST /listings/:id/reviews`**) | Create **`Review`** from **`rating`** / **`comment`**; **`Listing.findById(id)`**, push review **`_id`**, save listing; redirect to **`/listings/:id`**. |
-| **`GET /:reviewId`** | **`Review.findByIdAndDelete`**; **`Listing.findByIdAndUpdate`** with **`$pull`** on **`reviews`**; redirect to show listing. |
+| **`express.Router({ mergeParams: true })`** | Consistent with the review router. |
+| **`multer({ storage })`** | **`storage`** from **`cloudConfig.js`**. |
+| **`uploadListingImage`** | Runs **`upload.single("image")`** for **`POST /new`**; on error, flash + redirect **`/listings/new`**. |
+| **`uploadListingImageOptional`** | Same for **`PATCH /:id`**; on error, redirect **`/listings/:id/edit`**. |
+| **`GET /`** | **`ListingController.index`**. |
+| **`GET /new`** | **`isLoggedIn`**, **`newListingView`**. |
+| **`POST /new`** | **`isLoggedIn`**, **`uploadListingImage`**, **`newListingAdd`**. |
+| **`GET /:id`** | **`showListingDetails`** (nested populate). **After** **`/new`**. |
+| **`GET /:id/edit`** | **`isLoggedIn`**, **`isOwner`**, **`showListingEditPage`**. |
+| **`PATCH /:id`** | **`isLoggedIn`**, **`isOwner`**, **`uploadListingImageOptional`**, **`updateListingDetails`**. |
+| **`GET /:id/delete`** | **`isLoggedIn`**, **`isOwner`**, **`deleteListing`**. |
 
-Imports **`Listing`**, **`Review`**, **`wrapAsync`**.
+Imports **`wrapAsync`**, **`isLoggedIn`**, **`isOwner`**, **`ListingController`**, **`multer`**, **`storage`** from **`cloudConfig`**.
 
 ---
 
-## 7. `models/listing.js` — structured notes
+## 9. `routes/reviewRoutes.js` — structured notes
+
+| Part | Note |
+|------|------|
+| **`mergeParams: true`** | **`req.params.id`** is the listing id. |
+| **`POST /`** | **`isLoggedIn`**, **`ReviewController.addReview`**. |
+| **`GET /:reviewId`** | **`isLoggedIn`**, **`isReviewOwner`**, **`ReviewController.deleteReview`**. |
+
+Imports **`wrapAsync`**, **`isLoggedIn`**, **`isReviewOwner`**, **`ReviewController`**.
+
+---
+
+## 10. `routes/userRoutes.js` — structured notes
+
+| Part | Note |
+|------|------|
+| Router | Mounted at **`/user`**. |
+| **`GET /signup`** | **`UserController.index`**. |
+| **`POST /signup`** | **`wrapAsync(UserController.register)`**. |
+| **`GET /login`** | **`UserController.loginPage`**. |
+| **`POST /login`** | **`passport.authenticate("local", ...)`**, then **`wrapAsync(UserController.login)`**. |
+| **`GET /logout`** | **`UserController.logout`**. |
+
+Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
+
+---
+
+## 11. `models/listing.js` — structured notes
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1–4 | Import mongoose **`Schema`**, and **`Review`** (for the post-delete hook). |
-| 5–30 | **`listingSchema`**: required **`title`**; **`description`**; nested **`image.filename`** / **`image.url`** with defaults; **`price`**, **`location`**, **`country`**; **`reviews`** array of **`ObjectId`** refs to **`Review`**. |
-| 32–38 | **`post("findOneAndDelete", ...)`** — after a listing is removed via **`findOneAndDelete`** / **`findByIdAndDelete`**, **`Review.deleteMany`** removes all reviews whose **`_id`** is in **`listing.reviews`**. |
-| 40–42 | Export **`Listing`** model. |
+| 1–4 | Import **`Schema`**, **`Review`**, **`User`**. |
+| 6–35 | **`listingSchema`**: **`title`** … **`country`**; **`reviews`** **`[ObjectId]`** ref **`Review`**; **`owner`** **`ObjectId`** ref **`User`**. |
+| 37–43 | **`post("findOneAndDelete")`** — **`Review.deleteMany`** for ids in **`listing.reviews`**. |
+| 45–47 | Export **`Listing`**. |
 
 ---
 
-## 8. `models/review.js` — structured notes
+## 12. `models/review.js` — structured notes
 
 | Part | Note |
 |------|------|
-| Schema | **`comment`** (required string), **`rating`** (number 1–5, required), **`createdAt`** (Date, default **`Date.now()`**). |
-| Model | Compiled as **`Review`** (collection typically **`reviews`**). |
-| Why separate file | Keeps review fields and validation in one place; **`listing.js`** only references the model for refs and cascade delete. |
+| Schema | **`comment`**, **`rating`** (1–5), **`createdAt`**, **`owner`** ref **`User`**. |
+| Model | Collection typically **`reviews`**. |
+| Why **`owner`** | Lets **`isReviewOwner`** and the UI restrict delete to the author (aligned with **`middleware.js`**). |
 
 ---
 
-## 9. `utils/wrapAsync.js`
+## 13. `models/user.js` — structured notes
+
+| Part | Note |
+|------|------|
+| Schema | **`email`** (required **`String`**). **`passport-local-mongoose`** adds **`username`**, password hash/salt fields, and methods such as **`authenticate`**, **`register`**, **`serializeUser`**, **`deserializeUser`**. |
+| Plugin require | Package v9 exposes the plugin as **`exports.default`**; code uses **`pkg.default`** when **`require(...)`** returns an object so **`schema.plugin(...)`** receives a **function**. |
+| Why separate file | User credentials and Passport integration stay isolated from listing/review domain models. |
+
+---
+
+## 14. `utils/wrapAsync.js`
 
 | Part | Note |
 |------|------|
@@ -137,7 +218,7 @@ Imports **`Listing`**, **`Review`**, **`wrapAsync`**.
 
 ---
 
-## 10. `utils/ExpressError.js`
+## 15. `utils/ExpressError.js`
 
 | Part | Note |
 |------|------|
@@ -146,47 +227,57 @@ Imports **`Listing`**, **`Review`**, **`wrapAsync`**.
 
 ---
 
-## 11. `init/index.js` — line-by-line notes
+## 16. `init/index.js` — line-by-line notes
 
 | Lines | What it does |
 |-------|----------------|
-| 1–4 | Mongoose, seed array module, model, same **`URL`** as **`app.js`**. |
-| 6–8 | Connect helper (duplicated from app; keeps script self-contained). |
-| 10–14 | Connect and log. |
-| 17–21 | **`feedDB`**: **`deleteMany({})`** on all listings, then **`insertMany(initialData.data)`**. |
-| 23 | Run **`feedDB()`** when script executes. |
+| 1–4 | Mongoose, **`./data.js`** as **`initialData`**, **`Listing`**, same **`URL`** as **`app.js`**. |
+| 6–8 | **`dbConnection`** helper. |
+| 10–14 | Connect and log (same pattern as **`app.js`**). |
+| 17–21 | **`feedDB`**: **`Listing.deleteMany({})`**, **`Listing.insertMany(initialData.data)`**, log. |
+| 23 | Invoke **`feedDB()`** when the script runs. |
 
 **Caution:** This **empties** the listings collection every run. It does **not** clear the **`reviews`** collection; orphaned review documents are possible if you seed after deleting listings only via this script. (Deleting listings through the app runs the listing schema hook and `$pull` paths avoid leaving refs on the listing.)
 
 ---
 
-## 12. `init/data.js` — short notes
+## 17. `init/data.js` — short notes
 
 | Part | Note |
 |------|------|
-| Main body | Large **`sampleListings`** array: objects aligned with **`listingSchema`** (title, description, image, price, location, country). |
+| Main body | Large **`sampleListings`** array: objects aligned with **`listingSchema`** fields used at insert time (title, description, image, price, location, country). Seeded documents typically have **no **`owner`**** until you assign one in the DB or create listings through the app. |
 | Last line | **`module.exports = { data: sampleListings }`** so **`init/index.js`** can **`require("./data.js")`** and use **`initialData.data`**. |
 
 ---
 
-## 13. EJS templates — behavior only (no HTML/CSS)
+## 18. EJS templates — behavior only (no HTML/CSS)
 
 ### Layout and partials
 
 | File | Server-side behavior |
 |------|----------------------|
-| **`layouts/boilerplate.ejs`** | Outer page; **`include`** navbar and footer; **` <%- body -%>`** injects each page’s content; script tag for **`/js/script.js`**. |
+| **`layouts/boilerplate.ejs`** | Outer page; navbar; **`include`** **`flash.ejs`** (alerts from session flash); **`<%- body -%>`**; footer; Bootstrap bundle + **`/js/script.js`**. |
 | **`includes/navbar.ejs`** | Links to `/`, `/listings`, `/listings/new` (labels are presentation). |
 | **`includes/footer.ejs`** | Uses **`<%= new Date().getFullYear() %>`** for dynamic copyright year. |
+| **`includes/flash.ejs`** | If **`success`**, **`updated`**, **`deleted`**, or **`error`** locals are set (arrays from **`connect-flash`**), renders matching Bootstrap alerts (errors use danger styling). |
 
 ### Listing pages
+
+Any view rendered through **`boilerplate`** receives **`success`**, **`updated`**, **`deleted`**, and **`error`** on **`res.locals`** (populated in **`app.js`** from **`req.flash`**), so templates do not pass those explicitly unless you override locals.
 
 | File | Layout | Data / actions |
 |------|--------|----------------|
 | **`listings/index.ejs`** | `layout("/layouts/boilerplate")` | Expects **`allListings`**; loops; links to **`/listings/:id`**. |
-| **`listings/new.ejs`** | Same | Form **`POST`** to **`/listings/new`**; **`needs-validation`** for client-side checks. |
-| **`listings/show.ejs`** | Same | Expects **`listing`** (with populated **`reviews`**); review form **`POST`** to **`/listings/:id/reviews`**; links to edit/delete listing and delete individual reviews. |
-| **`listings/update.ejs`** | Same | Form **`POST`** with **`?_method=PATCH`**; inputs prefilled from **`listing`**. |
+| **`listings/new.ejs`** | Same | **`multipart/form-data`**; file field **`name="image"`**; **`POST /listings/new`**. |
+| **`listings/show.ejs`** | Same | Expects **`listing`** with **`owner`** and **`reviews`** populated (reviews include **`owner`**). Uses **`currentLoggedInUser`** for UI toggles; compare user id to **`listing.owner`** / **`review.owner`** with **`String(...)`** (not **`===`** on **`ObjectId`**). Review **`POST`** and listing edit/delete are also guarded by **`middleware.js`** on the server. |
+| **`listings/update.ejs`** | Same | **`multipart/form-data`**, **`?_method=PATCH`**; optional new **`image`** file; shows current image preview. |
+
+### User (auth) pages
+
+| File | Layout | Data / actions |
+|------|--------|----------------|
+| **`users/signup.ejs`** | `layout("/layouts/boilerplate")` | Form **`POST`** to **`/user/signup`**; fields **`username`**, **`email`**, **`password`**; **`needs-validation`**. |
+| **`users/login.ejs`** | Same | Form **`POST`** to **`/user/login`**; **`username`**, **`password`**. |
 
 ### Error pages
 
@@ -199,7 +290,7 @@ Imports **`Listing`**, **`Review`**, **`wrapAsync`**.
 
 ---
 
-## 14. `public/` folder
+## 19. `public/` folder
 
 | Path | Role |
 |------|------|
@@ -210,21 +301,21 @@ Use **root-absolute** asset URLs in the layout (e.g. **`/css/styles.css`**, **`/
 
 ---
 
-## 15. How requests flow (CRUD + reviews)
+## 20. How requests flow (CRUD + reviews + auth + uploads)
 
-Handlers for steps 1–7 live in **`routes/listingRoutes.js`** and **`routes/reviewRoutes.js`**; **`app.js`** only mounts those routers and runs 404/error middleware.
+**`routes/`** + **`controllers/`** + **`middleware.js`**; **`app.js`** mounts stack; **`cloudConfig`** used only on listing create/update with a file.
 
-1. Browser **`GET /listings`** → **`find`** → **`index.ejs`**.
-2. **`GET /listings/new`** → form → **`POST /listings/new`** → validate / **`save`** → redirect **`GET /listings`**.
-3. **`GET /listings/:id`** → **`findById`** + **`populate("reviews")`** → **`show.ejs`**.
-4. **`POST /listings/:id/reviews`** → save **`Review`**, push on listing → redirect **`GET /listings/:id`**.
-5. **`GET /listings/:id/reviews/:reviewId`** → delete review + **`$pull`** → redirect to show.
-6. **`GET /listings/:id/edit`** → **`update.ejs`** → **`POST` + `_method=PATCH`** → **`findByIdAndUpdate`** → redirect.
-7. **`GET /listings/:id/delete`** → **`findByIdAndDelete`** (hook cleans reviews) → redirect.
-8. Unmatched path → **404** template; thrown **`ExpressError`** or async failures → **error** template.
+1. **`GET /listings`** → **`ListingController.index`**.
+2. **`POST /listings/new`** → **`isLoggedIn`** → Multer → Cloudinary → **`newListingAdd`** (**`owner`**, **`image`** from **`req.file`**) → flash.
+3. **`GET /listings/:id`** → nested populate → **`show.ejs`**.
+4. Reviews → **`ReviewController`** + auth middleware.
+5. **`PATCH /listings/:id`** → **`isOwner`** → optional **`uploadListingImageOptional`** → **`$set`** fields and maybe **`image`**.
+6. Unmatched → **404**; **`ExpressError`** / async errors → **`error.ejs`**.
+
+**Auth:** **`UserController`** + Passport on user routes (see §10).
 
 ---
 
-## 16. Related file
+## 21. Related file
 
 - **`README.md`** — Quick start, scripts, and GitHub-oriented overview for new contributors.

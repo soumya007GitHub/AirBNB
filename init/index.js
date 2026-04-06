@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const initialData = require("./data.js");
+let initialData = require("./data.js");
 const Listing = require("../models/listing.js");
 const URL = "mongodb://127.0.0.1:27017/airbnb";
 
@@ -16,6 +16,12 @@ dbConnection().then(()=>{
 
 const feedDB = async ()=>{
     await Listing.deleteMany({});
+    initialData.data = initialData.data.map((obj)=>(
+        {
+        ...obj,
+        owner : "69d37f202f84959528548733"
+        }
+    ))
     await Listing.insertMany(initialData.data);
     console.log("Data feeded into the db");
 }

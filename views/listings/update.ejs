@@ -2,7 +2,7 @@
     <h1>Edit <%= listing.title %>
     </h1>
     <form action="/listings/<%= listing._id %>?_method=PATCH" method="post" class="needs-validation new-listing"
-        novalidate>
+        novalidate enctype="multipart/form-data">
         <div class="mb-3">
             <label for="title" class="form-label">Title</label>
             <input type="text" class="form-control" id="title" name="title" aria-describedby="title"
@@ -20,12 +20,13 @@
             </div>
         </div>
         <div class="mb-3">
-            <label for="image" class="form-label">Image URL</label>
-            <input type="text" class="form-control" id="image" name="image" aria-describedby="image"
-                value="<%= listing.image.url %>" required>
-            <div class="invalid-feedback">
-                Image is required!
-            </div>
+            <label class="form-label">Current image</label>
+            <div><img src="<%= listing.image.url %>" alt="<%= listing.image.filename %>" class="img-thumbnail" style="max-height: 180px;"></div>
+        </div>
+        <div class="mb-3">
+            <label for="image" class="form-label">Replace image (optional)</label>
+            <input type="file" class="form-control" id="image" name="image" aria-describedby="image" accept="image/png,image/jpeg,image/jpg,image/webp">
+            <div class="form-text">Leave empty to keep the current image.</div>
         </div>
         <div class="mb-3">
             <label for="price" class="form-label">Price</label>

@@ -1,19 +1,21 @@
 # Air BNB (Listings) — Express + MongoDB
 
-A small **server-rendered** web app for browsing and managing property-style **listings**. Built with **Node.js**, **Express**, **MongoDB** (via **Mongoose**), and **EJS** templates with **ejs-mate** layouts. Listings can have **reviews** (stored in a separate collection, linked from each listing). HTTP handlers for listings and reviews live under **`routes/`** and are mounted from **`app.js`**.
+A small **server-rendered** web app for browsing and managing property-style **listings**. Built with **Node.js**, **Express**, **MongoDB** (via **Mongoose**), and **EJS** templates with **ejs-mate** layouts. Listings and reviews store an **`owner`** (**`User`** ref). **Passport** handles signup/login; **`middleware.js`** guards routes. **Listing photos** upload to **Cloudinary** (**Multer** + **`multer-storage-cloudinary`**); URLs and **`public_id`** are stored on each listing. Route files under **`routes/`** delegate to **`controllers/`**; **`app.js`** loads **`.env`** first for Cloudinary credentials.
 
 ---
 
 ## Features
 
 - List all listings in a responsive grid
-- View a single listing and its reviews
-- Create a listing (form POST) with optional client-side validation (Bootstrap + `public/js/script.js`)
-- Edit a listing (HTML form + **PATCH** via **method-override**)
-- Delete a listing (currently **`GET`** — simple but not ideal for production); related reviews are removed via a Mongoose post-hook
-- Add a review (**`POST /listings/:id/reviews`**) and remove one (**`GET /listings/:id/reviews/:reviewId`**)
+- View a single listing and its reviews (listing and review authors populated for display)
+- **Create a listing** (login required) with **image upload to Cloudinary**; **`owner`** set to the logged-in user
+- Edit / delete **your own** listings; **optional** new image on edit
+- Add reviews when logged in; delete **your own** reviews
+- Client-side validation on forms (Bootstrap + `public/js/script.js`)
+- **User registration**, **login**, **logout** — Passport sessions
 - Central **404** and **error** pages (`views/error/`)
-- Optional **seed script** to reset the database with sample data
+- **Flash messages** via **express-session** + **connect-flash** + `views/includes/flash.ejs`
+- Optional **seed script** for sample listings (`init/index.js`)
 
 ---
 
@@ -26,6 +28,10 @@ A small **server-rendered** web app for browsing and managing property-style **l
 | Database | MongoDB |
 | ODM | Mongoose |
 | Views | EJS + ejs-mate |
+| Auth | Passport + passport-local + passport-local-mongoose |
+| Images | Cloudinary + Multer + multer-storage-cloudinary |
+| Config | dotenv (`.env` for `CLOUD_NAME`, `CLOUD_API_KEY`, `CLOUD_API_SECRET`) |
+| Sessions / UX | express-session + connect-flash |
 | UI | Bootstrap 5 & Font Awesome (CDN) + custom CSS in `public/css/` + small JS in `public/js/` |
 
 ---
@@ -34,10 +40,17 @@ A small **server-rendered** web app for browsing and managing property-style **l
 
 - [Node.js](https://nodejs.org/) (LTS recommended)
 - [MongoDB](https://www.mongodb.com/try/download/community) running locally (or change the connection string in `app.js` / `init/index.js`)
+- [Cloudinary](https://cloudinary.com/) account (for listing images)
 
-Default connection string in code:
+Default MongoDB connection string in code:
 
 `mongodb://127.0.0.1:27017/airbnb`
+
+Create a **`.env`** file in the project root (see **`cloudConfig.js`** for variable names):
+
+- `CLOUD_NAME` (or `CLOUDINARY_CLOUD_NAME`)
+- `CLOUD_API_KEY` (or `CLOUDINARY_API_KEY`)
+- `CLOUD_API_SECRET` (or `CLOUDINARY_API_SECRET`)
 
 ---
 
@@ -60,7 +73,11 @@ npm install
 
 Ensure the MongoDB service is running and accepts connections on **`27017`**.
 
-### 4. (Optional) Seed sample data
+### 4. Configure environment
+
+Add **`.env`** with Cloudinary keys (required for **Add listing** with image).
+
+### 5. (Optional) Seed sample data
 
 Wipes existing listings in the **`airbnb`** database, then inserts samples:
 
@@ -68,9 +85,9 @@ Wipes existing listings in the **`airbnb`** database, then inserts samples:
 node init/index.js
 ```
 
-> **Note:** The seed script clears **listings** only, not the **reviews** collection. If you need a fully clean DB, drop or empty the **`reviews`** collection in MongoDB as well.
+> **Note:** The seed script clears **listings** only, not **reviews** or **users**. Seeded rows may omit **`owner`** until you create listings through the app.
 
-### 5. Run the application
+### 6. Run the application
 
 ```bash
 npm start
@@ -99,31 +116,40 @@ Open **http://localhost:8080**
 ## Project structure
 
 ```
-├── app.js                 # Express app, DB connect, mount routers, errors
+├── app.js                 # dotenv first; Express, session, Passport, mount routers
+├── cloudConfig.js         # Cloudinary + Multer CloudinaryStorage
+├── middleware.js          # isLoggedIn, isOwner, isReviewOwner
 ├── package.json
 ├── package-lock.json
 ├── README.md
 ├── PROJECT_STRUCTURE.md   # Detailed architecture & code notes
+├── controllers/
+│   ├── listings.js        # Listing CRUD + render (uses req.file for images)
+│   ├── users.js           # Signup, login, logout
+│   └── reviews.js         # Add/delete reviews
 ├── routes/
-│   ├── listingRoutes.js   # CRUD under /listings
-│   └── reviewRoutes.js    # Reviews under /listings/:id/reviews (mergeParams)
+│   ├── listingRoutes.js   # /listings + Multer wrappers
+│   ├── reviewRoutes.js    # /listings/:id/reviews
+│   └── userRoutes.js      # /user
 ├── models/
-│   ├── listing.js         # Listing schema, review refs, cascade delete hook
-│   └── review.js          # Review schema (comment, rating, createdAt)
+│   ├── listing.js
+│   ├── review.js
+│   └── user.js
 ├── utils/
-│   ├── wrapAsync.js       # Async route wrapper → forwards errors to next()
-│   └── ExpressError.js    # HTTP-style errors (statusCode + message)
+│   ├── wrapAsync.js
+│   └── ExpressError.js
 ├── init/
-│   ├── data.js            # Sample listings array
-│   └── index.js           # Seed script (destructive for listings)
+│   ├── data.js
+│   └── index.js
 ├── views/
-│   ├── layouts/           # ejs-mate layout shell
-│   ├── includes/          # Navbar, footer partials
-│   ├── listings/          # List, new, show, edit pages
-│   └── error/             # 404 and generic error pages
+│   ├── layouts/
+│   ├── includes/
+│   ├── listings/
+│   ├── users/
+│   └── error/
 └── public/
-    ├── css/               # Static styles (served from /css/...)
-    └── js/                # e.g. Bootstrap form validation (served from /js/...)
+    ├── css/
+    └── js/
 ```
 
 ---
@@ -134,17 +160,23 @@ Open **http://localhost:8080**
 |--------|------|-------------|
 | GET | `/` | Simple text home / test |
 | GET | `/testListing` | Inserts one hard-coded listing (dev helper) |
+| GET | `/demouser` | Demo **`User.register`** (dev helper) |
 | GET | `/listings` | All listings |
 | GET | `/listings/new` | New listing form |
-| POST | `/listings/new` | Create listing |
-| GET | `/listings/:id` | Show one listing (reviews populated) |
+| POST | `/listings/new` | Create listing (**multipart** + Cloudinary image) |
+| GET | `/listings/:id` | Show one listing |
 | GET | `/listings/:id/edit` | Edit form |
-| PATCH | `/listings/:id` | Update listing (form uses `_method=PATCH`) |
+| PATCH | `/listings/:id` | Update listing (optional new image) |
 | GET | `/listings/:id/delete` | Delete listing |
-| POST | `/listings/:id/reviews` | Create a review for a listing |
+| POST | `/listings/:id/reviews` | Create a review |
 | GET | `/listings/:id/reviews/:reviewId` | Delete a review |
+| GET | `/user/signup` | Sign-up form |
+| POST | `/user/signup` | Register user |
+| GET | `/user/login` | Login form |
+| POST | `/user/login` | Log in |
+| GET | `/user/logout` | Log out |
 
-*(Any other path → 404 view; thrown errors → error view. Listing and review route implementations are in **`routes/`**.)*
+*(Controllers live in **`controllers/`**; route wiring in **`routes/`**.)*
 
 ---
 
