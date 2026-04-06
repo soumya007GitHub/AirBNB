@@ -12,20 +12,21 @@
                 <%= listing.description %>
             </p>
             <p>&#8377;<%= (Number(listing.price) || 0).toLocaleString('en-IN') %>/night
-                <% if (listing.gstPercentage) { %>
-                <span class="text-muted small">(+ <%= listing.gstPercentage %>% GST)</span>
-                <% } %>
+                    <% if (listing.gstPercentage) { %>
+                        <span class="text-muted small">(+ <%= listing.gstPercentage %>% GST)</span>
+                        <% } %>
             </p>
             <% if (listing.category) { %>
-            <p class="small text-capitalize text-muted">Category: <%= listing.category.replace(/-/g, ' ') %></p>
-            <% } %>
-            <p>
-                <%= listing.location %>, <%= listing.country %>
-            </p>
-            <% if(currentLoggedInUser && String(currentLoggedInUser._id)===String(listing.owner._id)){ %>
-                <a href="/listings/<%=listing._id%>/edit" class="btn btn-success">Edit Listing</a>
-                <a href="/listings/<%=listing._id%>/delete" class="btn btn-danger">Delete Listing</a>
-                <% }%>
+                <p class="small text-capitalize text-muted">Category: <%= listing.category.replace(/-/g, ' ' ) %>
+                </p>
+                <% } %>
+                    <p>
+                        <%= listing.location %>, <%= listing.country %>
+                    </p>
+                    <% if(currentLoggedInUser && String(currentLoggedInUser._id)===String(listing.owner._id)){ %>
+                        <a href="/listings/<%=listing._id%>/edit" class="btn btn-success">Edit Listing</a>
+                        <a href="/listings/<%=listing._id%>/delete" class="btn btn-danger">Delete Listing</a>
+                        <% }%>
         </div>
     </div>
     <!-- Review Form -->

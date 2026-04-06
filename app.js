@@ -79,9 +79,9 @@ app.use((req, res, next) => {
 })
 
 // Testing route
-// app.get("/", (req, res) => {
-//     res.send("This is sample test home route");
-// })
+app.get("/", (req, res) => {
+    res.redirect("/listings");
+})
 
 // Sample listing save route
 app.get("/testListing", async (req, res) => {

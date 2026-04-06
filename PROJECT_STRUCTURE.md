@@ -8,7 +8,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Layer | What it is | Where it lives |
 |--------|------------|----------------|
-| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling, **sessions stored in MongoDB** (**connect-mongo**) + Passport | `app.js`, `routes/`, `controllers/`, `models/`, `init/` |
+| **Backend** | Node.js process: HTTP server, MongoDB access, routing, form handling, sessions + Passport | `app.js`, `routes/`, `controllers/`, `models/`, `init/` |
 | **Config / uploads** | Cloudinary client + Multer storage; env vars | `cloudConfig.js` (loaded via `routes/listingRoutes.js`) |
 | **Server-rendered UI** | HTML produced on the server via EJS (not a separate SPA) | `views/` |
 | **Static assets** | Files sent as-is (CSS, client JS, future images) | `public/` |
@@ -28,7 +28,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 - **Views** let you edit pages without rereading all route code. **Dedicated error templates** (`views/error/`) separate “normal” pages from 404 and error responses.
 - **`init/`** is destructive (wipes listings); it must not run every time the server starts.
 - **`public/`** is separate so styles, scripts, and CDN links stay cacheable and paths stay predictable (`/css/...`, `/js/...`).
-- **`express-session` + `connect-mongo`** persist session documents in the same MongoDB cluster as the app (**`mongoUrl`** from **`ATLAS_DB_URL`**); **`crypto.secret`** (from **`SESSION_SECRET`**) encrypts session payloads in the store. **`connect-flash`** keeps short-lived messages across redirects; flash is read once, then cleared. **`passport`** + **`passport-local`** use the same session after **`passport-local-mongoose`** extends **`User`**.
+- **`express-session` + `connect-flash`** keep short-lived messages across redirects (e.g. “listing added”) without putting that state in the URL; flash is read once, then cleared. **`passport`** + **`passport-local`** use the same session to log users in after **`passport-local-mongoose`** adds hash/salt fields and helpers on **`User`**.
 
 ---
 
@@ -36,7 +36,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Path | Role |
 |------|------|
-| `app.js` | **`dotenv`** first. Mongo URL **`process.env.ATLAS_DB_URL`** for **`mongoose.connect`** and **`MongoStore.create`**. **`connect-mongo`** session store with **`crypto: { secret: SESSION_SECRET }`**; **`express-session`** + flash + **Passport**; **`res.locals`**; mount **`/listings`**, reviews, **`/user`**; dev routes **`/testListing`**, **`/demouser`**; **`GET /`** home is **commented** (root URL → **404**). |
+| `app.js` | First line **`require("dotenv").config()`** so **`.env`** loads before routers (Cloudinary keys). Express: session + flash + **Passport**; **`res.locals`** flash + **`currentLoggedInUser`**; Mongo connect; mount routers; dev routes; 404 + error middleware. |
 | `cloudConfig.js` | **`cloudinary.v2.config`** from **`process.env`** (`CLOUD_NAME` / `CLOUDINARY_CLOUD_NAME`, API key/secret aliases); exports **`CloudinaryStorage`** (**`airbnb_DEV`** folder, image formats). |
 | `middleware.js` | **`isLoggedIn`**, **`isOwner`**, **`isReviewOwner`** (see §5). |
 | `controllers/listings.js` | **Listing** CRUD + render: **`index`** builds Mongo **`filter`** from **`?search=`** and **`?category=`** (see §19); create/update validate **`category`** + **`gstPercentage`**; Multer image fields as before; **`$set`** on patch. |
@@ -71,7 +71,7 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 |---------------|------|
 | `"type": "commonjs"` | Uses `require` / `module.exports`, not ESM `import` by default. |
 | `"main": "app.js"` | Entry used conceptually; **`npm start`** runs **`node app.js`** (see `README.md` scripts). |
-| `dependencies` | **express**, **mongoose**, **ejs**, **ejs-mate**, **method-override**, **express-session**, **connect-mongo** — Mongo-backed session store; **connect-flash**, **passport**, **passport-local**, **passport-local-mongoose**, **dotenv**; **cloudinary**, **multer**, **multer-storage-cloudinary**; **nodemon** — dev restart. |
+| `dependencies` | **express**, **mongoose**, **ejs**, **ejs-mate**, **method-override**, **express-session**, **connect-flash**, **passport**, **passport-local**, **passport-local-mongoose**, **dotenv** — env file; **cloudinary**, **multer**, **multer-storage-cloudinary** — listing images to Cloudinary; **nodemon** — dev restart. |
 
 ---
 
@@ -79,22 +79,22 @@ This file explains **why** the repo is laid out in folders (instead of one file)
 
 | Lines / area | What it does |
 |--------------|----------------|
-| 1 | **`dotenv.config()`** — load **`.env`** before **`listingRoutes`** (**`cloudConfig`**). |
-| 3–19 | Express, mongoose, routers, **`express-session`**, **`MongoStore`** (**`require("connect-mongo").default`**), flash, Passport, **`User`**; **`URL = process.env.ATLAS_DB_URL`**. |
-| 21–31 | **`sessionSecret`** from **`process.env.SESSION_SECRET`** (dev fallback string). **`MongoStore.create({ mongoUrl: URL, touchAfter, crypto: { secret: sessionSecret } })`** — v6 API; do **not** pass **`mongoUrl`** into **`createWebCryptoAdapter`** (wrong API). |
-| 33–43 | **`sessionOptions`**: **`store`**, **`secret: sessionSecret`**, cookie **7d**, **`httpOnly`**. |
-| 45–58 | ejs-mate, views, **`urlencoded`**, **`method-override`**, **`static`**, **`session`**, **`flash()`**, Passport **`initialize`/`session`**, **`LocalStrategy`**, serialize/deserialize. |
-| 61–69 | **`dbConnection()`** → **`mongoose.connect(URL)`** (same **`ATLAS_DB_URL`** as session store). |
-| 71–79 | Flash → **`res.locals`** + **`currentLoggedInUser`**. |
-| 81–84 | **`GET /`** commented out (optional home). |
-| 86–108 | **`GET /testListing`**, **`GET /demouser`** (dev helpers). |
-| 110–117 | Mount **`/listings`**, nested reviews, **`/user`**. |
-| 119–128 | **404** + error middleware → **`error.ejs`**. |
-| 130–132 | Listen **8080**. |
+| 1 | **`dotenv.config()`** — load **`.env`** before **`listingRoutes`** (which pulls in **`cloudConfig`**). |
+| 3–17 | Express, mongoose, **`path`**, **`method-override`**, **`ejs-mate`**, **`Listing`**, **`listingRoutes`**, **`reviewRoutes`**, **`userRoutes`**, session, flash, passport, **`LocalStrategy`**, **`User`**; Mongo URL **`airbnb`**. |
+| 20–29 | **`sessionOptions`**. |
+| 31–38 | ejs-mate, views, **`urlencoded`**, **`method-override`**, **`static`**, **`session`**, **`flash()`**. |
+| 40–44 | Passport **`initialize`**, **`session`**, **`LocalStrategy`**, serialize/deserialize. |
+| 47–55 | **`dbConnection`**. |
+| 57–65 | Flash → **`res.locals`** + **`currentLoggedInUser`**. |
+| 67–70 | **`GET /`**. |
+| 72–84 | **`GET /testListing`**. |
+| 86–94 | **`GET /demouser`**. |
+| 96–103 | Mount **`/listings`**, **`/listings/:id/reviews`**, **`/user`**. |
+| 105–108 | **404**. |
+| 110–114 | Error middleware. |
+| 116–118 | Listen **8080**. |
 
-**Robustness / security notes (optional):** Set a strong **`SESSION_SECRET`** in **`.env`** for production. Ensure **`ATLAS_DB_URL`** is set; **`URL`** undefined breaks mongoose and the session store. Invalid `:id` values can cause Mongoose **CastError**; validate **`ObjectId`** or check **`listing`** before render. **`isOwner`** / **`isReviewOwner`** assume **`listing.owner`** / **`review.owner`** exist; seed or legacy documents without **`owner`** can throw—normalize data or guard in middleware.
-
-**Note:** **`init/index.js`** uses a **hardcoded** local **`mongodb://127.0.0.1:27017/airbnb`** for seeding only; it does not read **`ATLAS_DB_URL`**. Align manually if you seed against Atlas.
+**Robustness / security notes (optional):** Move **`sessionOptions.secret`** to an environment variable for production. Invalid `:id` values can cause Mongoose **CastError**; validate **`ObjectId`** or check **`listing`** before render. **`isOwner`** / **`isReviewOwner`** assume **`listing.owner`** / **`review.owner`** exist; seed or legacy documents without **`owner`** can throw—normalize data or guard in middleware.
 
 ---
 
@@ -124,7 +124,7 @@ Imports **`Listing`** and **`Review`** for DB lookups. Used as Express middlewar
 
 | File | Exports / role |
 |------|----------------|
-| **`listings.js`** | Local **`escapeRegex()`** escapes regex metacharacters in the search string. **`index`**: trim **`req.query.search`**; if non-empty, **`filter.$or`** with one case-insensitive regex on **title**, **location**, **country**; if **`req.query.category`** is in **`LISTING_CATEGORY_VALUES`**, set **`filter.category`** (invalid or empty category is **ignored**, not an error). Renders **`index.ejs`** with **`allListings`**, **`search`**, **`activeCategory`**, **`listingCategoryOptions`**. **`newListingAdd` / `updateListingDetails`**: validate **`category`**, **`gstPercentage`**, image rules, etc. |
+| **`listings.js`** | **`index`**: reads **`req.query.search`**, **`req.query.category`**; **`escapeRegex`** + **`$or`** on **title / location / country**; **`category`** must be in **`LISTING_CATEGORY_VALUES`** when set; passes **`allListings`**, **`search`**, **`activeCategory`**, **`listingCategoryOptions`** to **`index.ejs`**. **`newListingAdd` / `updateListingDetails`**: validate **`category`**, **`gstPercentage`**. Other actions unchanged (Multer, populate, etc.). |
 | **`users.js`** | **`index`** (signup view), **`register`**, **`loginPage`**, **`login`** (post-auth flash/redirect), **`logout`**. |
 | **`reviews.js`** | **`addReview`**, **`deleteReview`**. |
 
@@ -243,7 +243,7 @@ Imports **`wrapAsync`**, **`passport`**, **`UserController`**.
 
 | Lines | What it does |
 |-------|----------------|
-| 1–5 | Mongoose, **`./data.js`**, **`Listing`**, **`LISTING_CATEGORY_VALUES`**, **`URL`** (**hardcoded** **`mongodb://127.0.0.1:27017/airbnb`** — not **`ATLAS_DB_URL`**). |
+| 1–5 | Mongoose, **`./data.js`**, **`Listing`**, **`LISTING_CATEGORY_VALUES`**, **`URL`**. |
 | 7–15 | **`dbConnection`**; connect and log. |
 | 18–33 | **`feedDB`**: **`Listing.deleteMany({})`**; map each seed object with **`owner`** (default **`ObjectId`** string if missing), **`category`** (from row or round-robin over **`LISTING_CATEGORY_VALUES`**), **`gstPercentage`** (from row or rotate 5 / 12 / 18); **`insertMany(rows)`**; log. |
 | 35 | Invoke **`feedDB()`**. |
@@ -285,34 +285,14 @@ Any view rendered through **`boilerplate`** receives **`success`**, **`updated`*
 
 ### 19.1 Listings index — search, filters, and matching listings (behavior)
 
-**Template helpers (top of `index.ejs`):** **`enc(v)`** → **`encodeURIComponent`** for safe query strings. **`qsAll`** → **`?search=...`** when there is a search term (for the **All** chip). **`qsCat(cat)`** → **`?search=...&category=...`** with both parts only if needed — keeps search when switching category.
-
 | Mechanism | How it works |
 |-----------|----------------|
-| **Search** | **`GET`** form **`action="/listings"`**, **`method="get"`**, **`type="search"`** input **`name="search"`**, placeholder “Search destinations”. Submitting sends **`?search=...`**. If **`activeCategory`** is set, a **hidden** **`name="category"`** input keeps it so **search ∧ category** both apply. Empty search means no **`$or`** filter (all titles/locations/countries allowed, subject to category). |
-| **Backend** | **`ListingController.index`** (§7): **`escapeRegex(search)`** then **`RegExp(..., "i")`** on **title**, **location**, **country** via **`$or`**. **`category`** query must match **`LISTING_CATEGORY_VALUES`** exactly (e.g. **`boats`**, not “boat”); otherwise it is ignored. **`Listing.find(filter)`**. |
-| **Category chips** | Each chip links to **`/listings<%= qsCat(opt.value) %>`** → e.g. **`/listings?category=camping`**, **`/listings?search=goa&category=boats`**. **All** → **`/listings`** or **`/listings?search=...`** only (**`qsAll`**). |
-| **Icons / labels** | Loop **`listingCategoryOptions`**; **`opt.value`** in URL, **`opt.label`** + **`opt.icon`** on the chip. |
-| **Tax toggle** | Inline **`<script>`**: **`formatInr`**, **`renderPrices(showTax)`** on **`.listing-price-line`** using **`data-base-price`** / **`data-gst-pct`**; toggle **“Display total after taxes”**. Client-side only. |
-| **Empty state** | **`!allListings.length`** → short message to try another search or category. |
-
-**Stored `category` values (must match DB field; used in `?category=`):**
-
-| `?category=` value | UI label (chips) |
-|--------------------|------------------|
-| `trending` | Trending |
-| `rooms` | Rooms |
-| `iconic-cities` | Iconic Cities |
-| `mountains` | Mountains |
-| `castles` | Castles |
-| `amazing-pools` | Amazing Pools |
-| `camping` | Camping |
-| `farms` | Farms |
-| `arctic` | Arctic |
-| `domes` | Domes |
-| `boats` | Boats |
-
-**Matching logic:** A listing appears only if its **`category`** field equals the selected chip value **and** (if **`search`** is non-empty) **at least one** of **title / location / country** matches the search string. New listings get **`category`** from the create form; seed data may assign categories in **`init/index.js`**.
+| **Search** | **`GET`** form **`action="/listings"`**, **`method="get"`**, input **`name="search"`**. Submitting sends **`?search=...`**. If a **category** is already selected, a **hidden** **`category`** field keeps it so search + category **AND** together. |
+| **Backend** | **`ListingController.index`** (see §7): builds **`filter.$or`** with one **case-insensitive regex** (special chars escaped) on **`title`**, **`location`**, and **`country`**. If **`?category=`** is a valid enum value, adds **`filter.category`**. **`Listing.find(filter)`** returns only matching documents. |
+| **Category chips** | Links to **`/listings?category=<value>`** (e.g. **`camping`**, **`boats`**). **`qsCat`** / **`qsAll`** in the template preserve **`search`** when building URLs. **“All”** clears category (**`/listings`** or **`?search=`** only). Active chip uses CSS class **`category-filter-btn--active`** (no HTML/CSS detail here). |
+| **Icons / labels** | Rendered from **`listingCategoryOptions`** passed by the controller — same data as **`utils/listingCategories.js`**. |
+| **Tax toggle** | Inline **`<script>`**: reads **`data-base-price`** and **`data-gst-pct`** on each card; **“Display total after taxes”** switch toggles between base **`price`** and **`price + price × GST/100`**. Purely client-side; does not change the database. |
+| **Empty state** | If **`allListings.length === 0`**, show a short “no matches” message. |
 
 ### User (auth) pages
 
@@ -354,7 +334,7 @@ Use **root-absolute** asset URLs in the layout (e.g. **`/css/styles.css`**, **`/
 5. **`PATCH /listings/:id`** → **`isOwner`** → optional image → **`$set`** including **`category`** / **`gstPercentage`**.
 6. Unmatched → **404**; **`ExpressError`** / async errors → **`error.ejs`**.
 
-**Auth:** **`UserController`** + Passport on user routes (see §10). **Sessions** persist in Mongo via **`connect-mongo`** (see §4).
+**Auth:** **`UserController`** + Passport on user routes (see §10).
 
 ---
 
